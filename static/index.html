@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>いすゞ KDバンニングシミュレーター</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- 3D Visualization Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo">ISUZU Vanning Optimizer</div>
+            <div class="stepper">
+                <div class="step active" id="step-1-nav">1. データ読込</div>
+                <div class="step" id="step-2-nav">2. 状況確認</div>
+                <div class="step" id="step-3-nav">3. 計算</div>
+                <div class="step" id="step-4-nav">4. 結果・出力</div>
+            </div>
+        </header>
+
+        <main>
+            <!-- Step 1: Upload -->
+            <section id="step-1" class="step-content active">
+                <h2>Excelデータの読み込み</h2>
+                <p>月末に通達された荷物リスト（Excelファイル）をアップロードしてください。</p>
+
+                <div class="upload-area" id="drop-zone">
+                    <div class="upload-icon">📄</div>
+                    <p>ここにファイルをドラッグ＆ドロップ</p>
+                    <p class="sub-text">またはクリックしてファイルを選択</p>
+                    <input type="file" id="file-input" hidden accept=".xlsx, .xls">
+                </div>
+                
+                <div style="text-align: center; margin-top: 1.5rem;">
+                    <a href="/api/download_template" class="btn outline" style="font-size: 0.9rem; padding: 0.5rem 1rem; color: #2563eb; border-color: #2563eb; text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='transparent'">
+                        <span style="font-size: 1.2rem;">📥</span> すぐに試せる！シミュレーション用サンプルデータ（Excel）をダウンロード
+                    </a>
+                </div>
+            </section>
+
+            <!-- Step 2: Summary -->
+            <section id="step-2" class="step-content hidden">
+                <h2>データ読み込み完了</h2>
+                <p>時間軸操作の対象となるデータセットです。よろしければ最適化を実行してください。</p>
+                <div class="summary-cards">
+                    <div class="card target">
+                        <h3>総荷物数</h3>
+                        <div class="value" id="total-items">0</div>
+                    </div>
+                </div>
+                
+                <div style="background: #f8fafc; padding: 1.5rem; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 2rem;">
+                    <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: #1e293b;">シミュレーション条件（実務運用）</h3>
+                    <div style="display: flex; gap: 2rem; align-items: center;">
+                        <div>
+                            <label style="display: block; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #475569;">作業基準日（バンニング日）</label>
+                            <input type="date" id="base-date" class="form-input" style="padding: 0.75rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; width: 220px; font-size: 1rem;">
+                        </div>
+                        <div style="flex: 1;">
+                            <p style="font-size: 0.85rem; color: #64748b; margin: 0; line-height: 1.6;">
+                                ※ ここで設定した日付から<strong>「1週間以内」</strong>の納期を持つ荷物を【今週の出荷対象】とし、それ以降を【未来のリスト】として扱います。<br>
+                                本日より先の日付を設定することで、「来週時点でのパズルはどうなるか？」という予測シミュレーションが可能です。
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="action-bar">
+                    <button class="btn outline" onclick="showStep(1)">やり直す</button>
+                    <button class="btn primary" id="btn-run">最適化を実行</button>
+                </div>
+            </section>
+
+            <!-- Step 3: Loading -->
+            <section id="step-3" class="step-content hidden">
+                <h2>最適化計算中...</h2>
+                <div class="loader-container">
+                    <div class="spinner"></div>
+                    <p id="loading-text" style="font-weight: 600; color: #dc2626; font-size: 1.1rem; height: 1.5rem;">入力データを解析中...</p>
+                </div>
+            </section>
+
+            <!-- Step 4: Results -->
+            <section id="step-4" class="step-content hidden">
+                <h2>バンニングレイアウト結果</h2>
+                
+                <!-- 自然言語での要約（現場が一瞬で状況を把握するため） -->
+                <div id="natural-language-summary" style="background: #e0f2fe; border-left: 4px solid #0ea5e9; padding: 1rem 1.5rem; border-radius: 4px; margin-bottom: 1.5rem; font-weight: 600; color: #0369a1;">
+                    ここに自然言語のサマリーが入ります
+                </div>
+
+                <div class="result-summary">
+                    <div class="stat">確定コンテナ: <strong id="res-containers">0</strong>本</div>
+                    <div class="stat warning">保留プール送り: <strong id="res-pool">0</strong>件</div>
+                    <div class="stat">未来の残り: <strong id="res-future">0</strong>件</div>
+                </div>
+                
+                <div class="container-grid" id="container-grid">
+                    <!-- Cards will be injected here -->
+                </div>
+                
+                <div class="action-bar">
+                    <button class="btn outline" style="cursor:help;" title="カード内の荷物をクリックすると強制出荷のON/OFFが切り替わります">💡 カード内の荷物をクリックで手動操作</button>
+                    <button class="btn primary" onclick="downloadExcel()">現場への指示書を出力 (Excel)</button>
+                </div>
+            </section>
+        </main>
+        
+        <!-- 3D Modal (Hidden by default) -->
+        <div id="modal-3d" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; flex-direction: column; align-items: center; justify-content: center;">
+            <div style="width: 90%; max-width: 1200px; height: 80vh; background: #fff; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;">
+                <div style="padding: 1rem 1.5rem; background: #f3f4f6; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb;">
+                    <div>
+                        <h3 id="modal-title" style="margin: 0; display: inline-block;">3Dレイアウトビューア</h3>
+                        <span style="margin-left: 1rem; font-size: 0.9rem; color: #6b7280;">
+                            <span style="color:#3b82f6;">■</span> 通常荷物　<span style="color:#10b981;">■</span> 前倒し補填　<span style="color:#ef4444;">■</span> 強制出荷
+                        </span>
+                    </div>
+                    <button onclick="close3D()" style="background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #6b7280;">&times;</button>
+                </div>
+                <div id="3d-container" style="width: 100%; flex: 1; position: relative;">
+                    <!-- Stats Overlay -->
+                    <div id="3d-stats-overlay" style="position: absolute; top: 1rem; left: 1rem; background: rgba(255,255,255,0.95); padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); pointer-events: none; font-size: 0.95rem; border: 1px solid #e5e7eb; z-index: 5;">
+                    </div>
+                    <!-- Tooltip -->
+                    <div id="3d-tooltip" style="position: absolute; display: none; background: rgba(0,0,0,0.85); color: #fff; padding: 0.75rem; border-radius: 6px; pointer-events: none; font-size: 0.85rem; z-index: 10; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
