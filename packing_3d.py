@@ -35,26 +35,55 @@ class Packer3D:
             (item.width, item.length, True)
         ]
 
-        # 2. 空間を無駄なく使うため、Z(高さ) -> Y(左) -> X(奥) の順でソートして
-        # 最も奥の床に近いスペースから埋めていく
+        # 2. 入る空きスペースをすべて評価し、床面優先かつ残り空間がきれいな置き場を選ぶ。
         self.free_spaces.sort(key=lambda s: (s.z, s.x, s.y))
 
+        candidates = []
         for space in self.free_spaces:
             for l, w, is_rotated in orientations:
+                if (item.floor_only or not item.stackable) and space.z > 0:
+                    continue
                 if l <= space.length and w <= space.width and item.height <= space.height:
-                    # このスペースに配置可能！
-                    item.x = space.x
-                    item.y = space.y
-                    item.z = space.z
-                    item.is_rotated = is_rotated
-                    
-                    # 空間を分割して更新する
-                    self._split_space(space, l, w, item.height)
-                    return True
-                    
-        return False # どの空きスペースにも入らなかった
+                    candidates.append((
+                        self._placement_score(space, l, w, item.height),
+                        space,
+                        l,
+                        w,
+                        is_rotated
+                    ))
 
-    def _split_space(self, space: Space, item_l: float, item_w: float, item_h: float):
+        if not candidates:
+            return False
+
+        _, space, l, w, is_rotated = min(candidates, key=lambda candidate: candidate[0])
+        item.x = space.x
+        item.y = space.y
+        item.z = space.z
+        item.is_rotated = is_rotated
+
+        self._split_space(space, l, w, item.height, item.stackable)
+        self._prune_free_spaces()
+        return True
+
+    def _placement_score(self, space: Space, item_l: float, item_w: float, item_h: float):
+        leftover_l = space.length - item_l
+        leftover_w = space.width - item_w
+        leftover_h = space.height - item_h
+        leftover_volume = (space.length * space.width * space.height) - (item_l * item_w * item_h)
+        footprint_waste = (space.length * space.width) - (item_l * item_w)
+        split_balance = abs(leftover_l - leftover_w)
+        return (
+            space.z,
+            footprint_waste,
+            leftover_volume,
+            min(leftover_l, leftover_w),
+            split_balance,
+            leftover_h,
+            space.x,
+            space.y,
+        )
+
+    def _split_space(self, space: Space, item_l: float, item_w: float, item_h: float, allow_top_space: bool = True):
         """
         荷物を配置したことで失われた空間を取り除き、残りの空間を3つの新しい空間に分割する。
         （Guillotine Splitアルゴリズム）
@@ -64,7 +93,7 @@ class Packer3D:
         # 1. 箱の「真上」の空間（Top Space）
         # ※この空間は箱の L x W に完全に制限されるため、ここに積まれる荷物は
         # 必然的に「底面接地率100%（はみ出さない）」の制約を満たす。
-        if space.height - item_h > 0:
+        if allow_top_space and space.height - item_h > 0:
             top_space = Space(
                 x=space.x, 
                 y=space.y, 
@@ -95,3 +124,39 @@ class Packer3D:
             if space.length - item_l > 0:
                 front_space = Space(space.x + item_l, space.y, space.z, space.length - item_l, space.width, space.height)
                 self.free_spaces.append(front_space)
+
+    def _contains_space(self, outer: Space, inner: Space) -> bool:
+        return (
+            outer.x <= inner.x
+            and outer.y <= inner.y
+            and outer.z <= inner.z
+            and outer.x + outer.length >= inner.x + inner.length
+            and outer.y + outer.width >= inner.y + inner.width
+            and outer.z + outer.height >= inner.z + inner.height
+        )
+
+    def _prune_free_spaces(self):
+        valid_spaces = [
+            space
+            for space in self.free_spaces
+            if space.length > 0 and space.width > 0 and space.height > 0
+        ]
+
+        pruned = []
+        for idx, space in enumerate(valid_spaces):
+            contained = False
+            for other_idx, other in enumerate(valid_spaces):
+                if idx == other_idx:
+                    continue
+                if self._contains_space(other, space):
+                    same_space = (
+                        space.x == other.x and space.y == other.y and space.z == other.z
+                        and space.length == other.length and space.width == other.width and space.height == other.height
+                    )
+                    if not same_space or other_idx < idx:
+                        contained = True
+                        break
+            if not contained:
+                pruned.append(space)
+
+        self.free_spaces = pruned
