@@ -33,18 +33,6 @@ DEFAULT_SIMULATION_ASSUMPTIONS = {
     "wood_expiration_days": [14, 21, 28],
     "max_item_weight_kg": 21500,
     "weight_variation": [0.90, 1.15],
-    "allow_early_ship_probability": 0.86,
-    "separation_probability": 0.07,
-    "separation_groups": ["危険物A", "精密部品B", "混載注意C"],
-    "stackable_unavailable_probability": {
-        "大型木箱/特殊木箱": 0.35,
-        "大型スチール": 0.35,
-        "木箱": 0.18,
-    },
-    "floor_only_probability": {
-        "重量物": 0.35,
-        "大型木箱/特殊木箱": 0.50,
-    },
     "priority_thresholds": [
         {"due_days": 7, "priority": 70},
         {"due_days": 14, "priority": 55},
@@ -142,18 +130,11 @@ def build_generation_parameter_rows(assumptions, row_count, seed):
             "説明": "木箱の保管期限を積載可能日から何日後に置くか",
         },
         {
-            "区分": "制約",
-            "項目": "前倒し可率",
-            "値": assumptions.get("allow_early_ship_probability"),
-            "扱い": "仮定",
-            "説明": "納期前の荷物を赤字回避の補填候補にできる割合",
-        },
-        {
-            "区分": "制約",
-            "項目": "分離制約発生率",
-            "値": assumptions.get("separation_probability"),
-            "扱い": "仮定",
-            "説明": "混載注意などの分離グループを付与する割合",
+            "区分": "積み方",
+            "項目": "配置方針",
+            "値": "重量順・低位置優先",
+            "扱い": "自動判定",
+            "説明": "床置き・段積み可否・分離制約は生成シートに持たせず、重量順で下から配置する",
         },
     ])
     return rows

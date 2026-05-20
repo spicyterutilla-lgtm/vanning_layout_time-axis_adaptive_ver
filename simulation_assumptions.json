@@ -136,22 +136,6 @@
     0.9,
     1.15
   ],
-  "allow_early_ship_probability": 0.86,
-  "separation_probability": 0.07,
-  "separation_groups": [
-    "危険物A",
-    "精密部品B",
-    "混載注意C"
-  ],
-  "stackable_unavailable_probability": {
-    "大型木箱/特殊木箱": 0.35,
-    "大型スチール": 0.35,
-    "木箱": 0.18
-  },
-  "floor_only_probability": {
-    "重量物": 0.35,
-    "大型木箱/特殊木箱": 0.5
-  },
   "priority_thresholds": [
     {
       "due_days": 7,

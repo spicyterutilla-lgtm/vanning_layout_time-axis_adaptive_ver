@@ -40,9 +40,9 @@ class Packer3D:
 
         candidates = []
         for space in self.free_spaces:
+            if item.floor_only and space.z > 0.001:
+                continue
             for l, w, is_rotated in orientations:
-                if (item.floor_only or not item.stackable) and space.z > 0:
-                    continue
                 if l <= space.length and w <= space.width and item.height <= space.height:
                     candidates.append((
                         self._placement_score(space, l, w, item.height),
@@ -61,7 +61,7 @@ class Packer3D:
         item.z = space.z
         item.is_rotated = is_rotated
 
-        self._split_space(space, l, w, item.height, item.stackable)
+        self._split_space(space, l, w, item.height, allow_top_space=item.stackable)
         self._prune_free_spaces()
         return True
 

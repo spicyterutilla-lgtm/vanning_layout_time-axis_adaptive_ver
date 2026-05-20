@@ -204,9 +204,14 @@ class DataLoader:
 
             force_ship = self._parse_bool(row[force_ship_col], False) if force_ship_col else False
             allow_early_ship = self._parse_bool(row[allow_early_ship_col], True) if allow_early_ship_col else True
-            stackable = self._parse_bool(row[stackable_col], True) if stackable_col else True
-            if no_stack_col and self._parse_bool(row[no_stack_col], False):
-                stackable = False
+            
+            stackable_val = True
+            if stackable_col:
+                stackable_val = self._parse_bool(row[stackable_col], True)
+            elif no_stack_col:
+                stackable_val = not self._parse_bool(row[no_stack_col], False)
+            stackable = stackable_val
+            
             floor_only = self._parse_bool(row[floor_only_col], False) if floor_only_col else False
             separation_group = self._parse_group(row[separation_group_col]) if separation_group_col else ""
 

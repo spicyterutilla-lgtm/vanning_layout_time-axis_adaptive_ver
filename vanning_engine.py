@@ -32,7 +32,9 @@ class VanningEngine:
 
     def _violates_container_rules(self, container: Container, item: Item) -> bool:
         if item.separation_group:
-            return any(existing.separation_group == item.separation_group for existing in container.items)
+            for existing in container.items:
+                if existing.separation_group and existing.separation_group != item.separation_group:
+                    return True
         return False
 
     def _can_pack(self, container: Container, item: Item) -> bool:
@@ -83,10 +85,8 @@ class VanningEngine:
             return "重量上限"
         if projected_weight_rate > WEIGHT_SOFT_LIMIT_RATE and container.fill_rate_volume < VOLUME_TARGET_RATE:
             return "重量ソフト上限"
-        if self._violates_container_rules(container, item):
-            return "分離制約"
         if not self._can_pack_without_mutation(container, item):
-            return "3D配置/床置き/段積み"
+            return "3D配置"
         return "採用可能"
 
     def _container_fit_score(self, container: Container, item: Item):
@@ -201,8 +201,7 @@ class VanningEngine:
     def _basic_sort_prefix(self, item: Item):
         return (
             not item.force_ship,
-            not item.floor_only,
-            not item.stackable, # 修正: notをつけてTrue(段積み可)を0にし、優先させる
+            -item.weight,
         )
 
     def _sort_key_volume_first(self, item: Item):
@@ -414,8 +413,7 @@ class VanningEngine:
             density = self._density(item)
             return (
                 not item.force_ship,
-                not item.floor_only,
-                item.stackable,
+                -item.weight,
                 density,
                 -item.volume_m3,
                 -self._footprint_m2(item),

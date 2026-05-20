@@ -4,194 +4,165 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>いすゞ KDバンニングシミュレーター</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <meta name="description" content="コンテナ積載最適化シミュレーター。納期を守りながら充填率80%以上を実現する時間軸適応型バンニングレイアウト。">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    
-    <!-- 3D Visualization Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
-    <div class="app-container">
-        <header>
+    <div class="app">
+        <header class="app-header">
             <div class="logo">ISUZU Vanning Optimizer</div>
             <div class="stepper">
-                <div class="step active" id="step-1-nav">1. データ読込</div>
-                <div class="step" id="step-2-nav">2. 状況確認</div>
-                <div class="step" id="step-3-nav">3. 計算</div>
-                <div class="step" id="step-4-nav">4. 結果・出力</div>
+                <div class="step-dot active" id="step-1-nav">1. 読込</div>
+                <div class="step-dot" id="step-2-nav">2. 条件</div>
+                <div class="step-dot" id="step-3-nav">3. 計算</div>
+                <div class="step-dot" id="step-4-nav">4. 結果</div>
             </div>
         </header>
 
         <main>
-            <!-- Step 1: Upload -->
-            <section id="step-1" class="step-content active">
-                <h2>Excelデータの読み込み</h2>
-                <p>月末に通達された荷物リスト（Excelファイル）をアップロードしてください。</p>
+            <!-- ====== Step 1: Upload ====== -->
+            <section id="step-1" class="step-panel active">
+                <div class="glass-card">
+                    <h2>荷物リストを読み込む</h2>
+                    <p class="subtitle">Excel(.xlsx)をドロップまたは選択してください</p>
 
-                <div class="upload-area" id="drop-zone">
-                    <div class="upload-icon">📄</div>
-                    <p>ここにファイルをドラッグ＆ドロップ</p>
-                    <p class="sub-text">またはクリックしてファイルを選択</p>
-                    <input type="file" id="file-input" hidden accept=".xlsx, .xls">
-                </div>
-                
-                <div style="text-align: center; margin-top: 1.5rem;">
-                    <a id="sample-download-link" href="/api/download_template" class="btn outline" style="font-size: 0.9rem; padding: 0.5rem 1rem; color: #2563eb; border-color: #2563eb; text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='transparent'">
-                        <span style="font-size: 1.2rem;">📥</span> 開示ケースリスト準拠のシミュレーションデータ（Excel）をダウンロード
-                    </a>
-                    <p style="font-size:0.85rem; color:#64748b; margin:0.75rem 0 0;">ダウンロードしたExcelを読み込むと、次の画面で「今回のデータがどんな状況設定か」を表示します。</p>
-                </div>
-
-                <details style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:1rem; margin-top:1.25rem;">
-                    <summary style="font-weight:800; color:#1e293b; cursor:pointer;">検証データの作り方を調整する</summary>
-                    <p style="font-size:0.84rem; color:#64748b; margin:0.5rem 0 0.75rem;">基本はこのままで大丈夫です。条件を変えて比較したい時だけ調整します。</p>
-                    <div style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:flex-end;">
-                        <div>
-                            <label style="display:block; font-size:0.8rem; font-weight:700; color:#475569; margin-bottom:0.25rem;">荷物の数</label>
-                            <input type="number" id="sample-rows" min="50" max="3000" value="200" style="width:110px; padding:0.55rem; border:1px solid #cbd5e1; border-radius:6px;">
-                        </div>
-                        <div>
-                            <label style="display:block; font-size:0.8rem; font-weight:700; color:#475569; margin-bottom:0.25rem;">再現用番号</label>
-                            <input type="number" id="sample-seed" value="20260516" style="width:140px; padding:0.55rem; border:1px solid #cbd5e1; border-radius:6px;">
-                        </div>
-                        <div>
-                            <label style="display:block; font-size:0.8rem; font-weight:700; color:#475569; margin-bottom:0.25rem;">早めに積める割合(%)</label>
-                            <input type="number" id="early-rate" min="0" max="100" value="86" style="width:120px; padding:0.55rem; border:1px solid #cbd5e1; border-radius:6px;">
-                        </div>
-                        <div>
-                            <label style="display:block; font-size:0.8rem; font-weight:700; color:#475569; margin-bottom:0.25rem;">一緒に積めない割合(%)</label>
-                            <input type="number" id="separation-rate" min="0" max="100" value="7" style="width:120px; padding:0.55rem; border:1px solid #cbd5e1; border-radius:6px;">
-                        </div>
-                        <button class="btn outline" id="btn-save-assumptions" style="padding:0.55rem 0.9rem;">この条件を保存</button>
+                    <div class="upload-zone" id="drop-zone">
+                        <div class="upload-icon">📦</div>
+                        <p>ここにファイルをドラッグ＆ドロップ</p>
+                        <p class="hint">または、クリックして選択</p>
+                        <input type="file" id="file-input" hidden accept=".xlsx, .xls">
                     </div>
-                    <div id="assumption-summary" style="font-size:0.82rem; color:#64748b; margin-top:0.75rem;"></div>
-                </details>
-            </section>
 
-            <!-- Step 2: Summary -->
-            <section id="step-2" class="step-content hidden">
-                <h2>データ読み込み完了</h2>
-                <p>時間軸操作の対象となるデータセットです。よろしければ最適化を実行してください。</p>
-                <div class="summary-cards">
-                    <div class="card target">
-                        <h3>総荷物数</h3>
-                        <div class="value" id="total-items">0</div>
+                    <div style="text-align:center; margin-top:1rem;">
+                        <a id="sample-download-link" href="/api/download_template" class="template-link">
+                            📥 テンプレートExcelをダウンロード
+                        </a>
                     </div>
-                </div>
-
-                <div id="simulation-context" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; border-left:4px solid #0ea5e9; padding:1rem 1.5rem; border-radius:8px; margin-bottom:1.5rem;">
-                </div>
-
-                <div id="validation-summary" style="display:none; background:#fff7ed; border-left: 4px solid #f97316; padding: 1rem 1.5rem; border-radius: 4px; margin-bottom: 1.5rem; color:#9a3412;">
-                </div>
-                
-                <div style="background: #f8fafc; padding: 1.5rem; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 2rem;">
-                    <h3 style="margin-bottom: 1rem; font-size: 1.1rem; color: #1e293b;">シミュレーション条件（実務運用）</h3>
-                    <div style="display: flex; gap: 1.5rem; align-items: flex-end; flex-wrap: wrap;">
-                        <div>
-                            <label style="display: block; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #475569;">作業基準日（バンニング日）</label>
-                            <input type="date" id="base-date" class="form-input" style="padding: 0.75rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; width: 220px; font-size: 1rem;">
-                        </div>
-                        <div>
-                            <label style="display: block; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #475569;">必須出荷幅（日）</label>
-                            <input type="number" id="must-window" min="0" max="30" value="7" class="form-input" style="padding: 0.75rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; width: 140px; font-size: 1rem;">
-                        </div>
-                        <div>
-                            <label style="display: block; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; color: #475569;">ローリング日数</label>
-                            <input type="number" id="rolling-days" min="1" max="90" value="30" class="form-input" style="padding: 0.75rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; width: 140px; font-size: 1rem;">
-                        </div>
-                        <div style="flex: 1; min-width: 260px;">
-                            <p style="font-size: 0.85rem; color: #64748b; margin: 0; line-height: 1.6;">
-                                ※ 基準日から指定日数以内の納期、または木箱期限を持つ荷物を【必須出荷】とし、すでに現場にある納期先の荷物を【前倒し候補】として扱います。<br>
-                                本日より先の日付を設定することで、「来週時点でのパズルはどうなるか？」という予測シミュレーションが可能です。
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="action-bar">
-                    <button class="btn outline" onclick="showStep(1)">やり直す</button>
-                    <button class="btn outline" id="btn-scenario">シナリオ比較</button>
-                    <button class="btn outline" id="btn-rolling">ローリング計画</button>
-                    <button class="btn primary" id="btn-run">最適化を実行</button>
                 </div>
             </section>
 
-            <!-- Step 3: Loading -->
-            <section id="step-3" class="step-content hidden">
-                <h2>最適化計算中...</h2>
-                <div class="loader-container">
-                    <div class="spinner"></div>
-                    <p id="loading-text" style="font-weight: 600; color: #dc2626; font-size: 1.1rem; height: 1.5rem;">入力データを解析中...</p>
+            <!-- ====== Step 2: Conditions ====== -->
+            <section id="step-2" class="step-panel">
+                <div class="glass-card">
+                    <h2>条件を設定</h2>
+                    <p class="subtitle">基準日と先読み日数を決めて、最適化を実行します</p>
+
+                    <div class="data-badge" id="data-badge">
+                        📦 読込済み: <strong id="total-items">0</strong> 件
+                    </div>
+
+                    <div id="validation-bar" class="validation-bar" style="display:none;"></div>
+
+                    <div class="condition-row" style="margin-top:1.5rem;">
+                        <div class="field">
+                            <label>基準日</label>
+                            <input type="date" id="base-date" style="width:200px;">
+                        </div>
+                        <div class="field">
+                            <label>何日先まで見るか</label>
+                            <input type="number" id="must-window" min="0" max="30" value="7" style="width:100px;">
+                        </div>
+                    </div>
+
+                    <div class="actions">
+                        <button class="btn-ghost" onclick="showStep(1)">戻る</button>
+                        <button class="btn-primary" id="btn-run">最適化を実行</button>
+                    </div>
                 </div>
             </section>
 
-            <!-- Step 4: Results -->
-            <section id="step-4" class="step-content hidden">
-                <h2>バンニングレイアウト結果</h2>
-                
-                <!-- 自然言語での要約（現場が一瞬で状況を把握するため） -->
-                <div id="natural-language-summary" style="background: #e0f2fe; border-left: 4px solid #0ea5e9; padding: 1rem 1.5rem; border-radius: 4px; margin-bottom: 1.5rem; font-weight: 600; color: #0369a1;">
-                    ここに自然言語のサマリーが入ります
+            <!-- ====== Step 3: Loading ====== -->
+            <section id="step-3" class="step-panel">
+                <div class="glass-card loading-card">
+                    <div class="pulse-ring"></div>
+                    <p id="loading-text">最適化計算中...</p>
                 </div>
+            </section>
 
-                <div id="risk-summary" style="display:none; background:#fff7ed; border-left: 4px solid #f97316; padding: 1rem 1.5rem; border-radius: 4px; margin-bottom: 1.5rem; color:#9a3412;">
-                </div>
+            <!-- ====== Step 4: Dashboard ====== -->
+            <section id="step-4" class="step-panel">
 
-                <div class="result-summary">
-                    <div class="stat"><span id="label-containers">確定コンテナ</span>: <strong id="res-containers">0</strong><span id="unit-containers">本</span></div>
-                    <div class="stat warning"><span id="label-pool">保留プール送り</span>: <strong id="res-pool">0</strong><span id="unit-pool">件</span></div>
-                    <div class="stat"><span id="label-forwardable">前倒し候補残</span>: <strong id="res-forwardable">0</strong><span id="unit-forwardable">件</span></div>
-                    <div class="stat"><span id="label-hold">前倒し不可</span>: <strong id="res-hold">0</strong><span id="unit-hold">件</span></div>
-                    <div class="stat"><span id="label-future">未到着</span>: <strong id="res-future">0</strong><span id="unit-future">件</span></div>
-                    <div class="stat warning"><span id="label-excluded">入力除外</span>: <strong id="res-excluded">0</strong><span id="unit-excluded">件</span></div>
-                </div>
-
-                <div id="comparison-summary" style="display:none; background:#f8fafc; border:1px solid #e2e8f0; padding: 1rem 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                </div>
-                
-                <div class="container-grid" id="container-grid">
-                    <!-- Cards will be injected here -->
-                </div>
-                
-                <div class="action-bar" style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem;">
-                    <div style="display: flex; gap: 1rem;">
-                        <button class="btn outline" onclick="showStep(2)">🔄 条件を変えて再計算</button>
-                        <button class="btn outline" style="cursor:help;" title="カード内の荷物をクリックすると強制出荷のON/OFFが切り替わります">💡 カード内の荷物をクリックで手動操作</button>
+                <!-- Hero KPI -->
+                <div class="kpi-row" id="kpi-row">
+                    <div class="kpi-card" id="kpi-card-containers">
+                        <div class="kpi-label">コンテナ</div>
+                        <div class="kpi-value" id="kpi-containers">0</div>
+                        <div class="kpi-unit">本</div>
+                        <div class="kpi-delta" id="kpi-containers-delta"></div>
                     </div>
-                    <div style="display: flex; gap: 1rem;">
-                        <button class="btn primary" id="btn-export" onclick="downloadExcel()">現場への指示書を出力 (Excel)</button>
-                        <button class="btn primary" id="btn-export-rolling" style="display:none;" onclick="downloadRollingExcel()">ローリングレポートを出力 (Excel)</button>
+                    <div class="kpi-card" id="kpi-card-alerts">
+                        <div class="kpi-label">要確認</div>
+                        <div class="kpi-value" id="kpi-alerts">0</div>
+                        <div class="kpi-unit">本</div>
                     </div>
+                    <div class="kpi-card" id="kpi-card-fillrate">
+                        <div class="kpi-label">平均積載率</div>
+                        <div class="kpi-value" id="kpi-fillrate">0</div>
+                        <div class="kpi-unit">%</div>
+                        <div class="kpi-delta" id="kpi-fillrate-delta"></div>
+                    </div>
+                </div>
+
+                <!-- One-line summary -->
+                <div class="summary-line" id="summary-line"></div>
+
+                <!-- Container Grid -->
+                <div class="container-grid" id="container-grid"></div>
+
+                <!-- Actions -->
+                <div class="dashboard-actions">
+                    <button class="btn-ghost" onclick="showStep(2)">🔄 条件変更</button>
+                    <button class="btn-primary" id="btn-export" onclick="downloadExcel()">📋 指示書を出力 (Excel)</button>
+                </div>
+
+                <!-- Admin Section (hidden by default) -->
+                <div class="admin-link">
+                    <a href="#" id="admin-toggle" onclick="toggleAdmin(event)">管理者向け分析 ▸</a>
+                </div>
+                <div class="admin-panel" id="admin-panel">
+                    <h3>高度な分析</h3>
+                    <div class="condition-row" style="margin-bottom:1rem;">
+                        <div class="field">
+                            <label>ローリング日数</label>
+                            <input type="number" id="rolling-days" min="1" max="90" value="30" style="width:100px;">
+                        </div>
+                    </div>
+                    <div class="admin-btn-row">
+                        <button class="btn-ghost" id="btn-rolling">📊 ローリングシミュレーション</button>
+                        <button class="btn-ghost" id="btn-scenario">📈 シナリオ比較</button>
+                        <button class="btn-ghost" id="btn-export-rolling" style="display:none;" onclick="downloadRollingExcel()">📥 ローリング結果Excel</button>
+                    </div>
+                    <div id="admin-results" style="margin-top:1rem;"></div>
                 </div>
             </section>
         </main>
-        
-        <!-- 3D Modal (Hidden by default) -->
-        <div id="modal-3d" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; flex-direction: column; align-items: center; justify-content: center;">
-            <div style="width: 90%; max-width: 1200px; height: 80vh; background: #fff; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;">
-                <div style="padding: 1rem 1.5rem; background: #f3f4f6; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e5e7eb;">
+
+        <!-- ====== 3D Modal ====== -->
+        <div class="modal-overlay" id="modal-3d">
+            <div class="modal-content">
+                <div class="modal-header">
                     <div>
-                        <h3 id="modal-title" style="margin: 0; display: inline-block;">3Dレイアウトビューア</h3>
-                        <span style="margin-left: 1rem; font-size: 0.9rem; color: #6b7280;">
-                            <span style="color:#3b82f6;">■</span> 通常荷物　<span style="color:#10b981;">■</span> 前倒し補填　<span style="color:#ef4444;">■</span> 強制出荷　<span style="color:#ff0000; font-size: 1.2em;">●</span> 重心位置
-                        </span>
+                        <h3 id="modal-title">3Dレイアウト</h3>
                     </div>
-                    <button onclick="close3D()" style="background: none; border: none; font-size: 1.8rem; cursor: pointer; color: #6b7280;">&times;</button>
+                    <div class="legend">
+                        <span><span style="color:#3b82f6;">■</span> 通常</span>
+                        <span><span style="color:#10b981;">■</span> 空き埋め</span>
+                        <span><span style="color:#ef4444;">■</span> 強制出荷</span>
+                        <span><span style="color:#ff0000;font-size:1.1em;">●</span> 重心</span>
+                    </div>
+                    <button class="modal-close" onclick="close3D()">&times;</button>
                 </div>
-                <div id="3d-container" style="width: 100%; flex: 1; position: relative;">
-                    <!-- Stats Overlay -->
-                    <div id="3d-stats-overlay" style="position: absolute; top: 1rem; left: 1rem; background: rgba(255,255,255,0.95); padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); pointer-events: none; font-size: 0.95rem; border: 1px solid #e5e7eb; z-index: 5;">
-                    </div>
-                    <!-- Tooltip -->
-                    <div id="3d-tooltip" style="position: absolute; display: none; background: rgba(0,0,0,0.85); color: #fff; padding: 0.75rem; border-radius: 6px; pointer-events: none; font-size: 0.85rem; z-index: 10; white-space: nowrap; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
-                    </div>
+                <div class="modal-body" id="3d-container">
+                    <div class="stats-overlay" id="3d-stats-overlay"></div>
+                    <div class="tooltip-3d" id="3d-tooltip"></div>
                 </div>
             </div>
         </div>
-        
     </div>
+
     <script src="script.js"></script>
 </body>
 </html>
