@@ -20,9 +20,17 @@ class DataLoader:
             "length": ["L", "長さ", "Length", "length_mm", "長さ(mm)"],
             "width": ["W", "幅", "Width", "width_mm", "幅(mm)"],
             "height": ["H", "高さ", "Height", "height_mm", "高さ(mm)"],
-            "weight": ["重量", "Weight", "kg"],
-            "creation": ["梱包日", "生産日", "available_date", "現場到着日", "積載可能日", "到着日"],
-            "due": ["納期", "出荷日", "due_date"],
+            "weight": ["梱包後重量", "重量", "Weight", "kg"],
+            "unpacked_weight": ["梱包前重量", "net_weight"],
+            "request_code": ["依頼コード", "request_code"],
+            "shipper": ["出荷者名", "shipper"],
+            "consignee": ["受取者名", "consignee"],
+            "destination": ["仕向け地", "destination"],
+            "part_code": ["部品コード", "part_code"],
+            "vehicle_code": ["車両コード", "vehicle_code"],
+            "vessel_loading_date": ["船積日", "vessel_loading_date"],
+            "creation": ["納入予定日", "梱包日", "生産日", "available_date", "現場到着日", "積載可能日", "到着日"],
+            "due": ["バンニング完了期限", "納期", "出荷日", "due_date"],
             "expiration": ["保管期限", "木箱期限", "storage_deadline", "expiration_date"],
             "priority": ["優先度", "priority"],
             "force_ship": ["強制出荷", "force_ship", "手動強制"],
@@ -109,6 +117,14 @@ class DataLoader:
         w_col = self._find_column(df, self.mapping_config["width"])
         h_col = self._find_column(df, self.mapping_config["height"])
         weight_col = self._find_column(df, self.mapping_config["weight"])
+        unpacked_weight_col = self._find_column(df, self.mapping_config["unpacked_weight"])
+        request_code_col = self._find_column(df, self.mapping_config["request_code"])
+        shipper_col = self._find_column(df, self.mapping_config["shipper"])
+        consignee_col = self._find_column(df, self.mapping_config["consignee"])
+        destination_col = self._find_column(df, self.mapping_config["destination"])
+        part_code_col = self._find_column(df, self.mapping_config["part_code"])
+        vehicle_code_col = self._find_column(df, self.mapping_config["vehicle_code"])
+        vessel_loading_date_col = self._find_column(df, self.mapping_config["vessel_loading_date"])
         creation_col = self._find_column(df, self.mapping_config["creation"])
         due_col = self._find_column(df, self.mapping_config["due"])
         expiration_col = self._find_column(df, self.mapping_config["expiration"])
@@ -137,6 +153,10 @@ class DataLoader:
                 "width": bool(w_col),
                 "height": bool(h_col),
                 "weight": bool(weight_col),
+                "managed_fields": all([
+                    request_code_col, shipper_col, consignee_col, destination_col,
+                    part_code_col, vehicle_code_col, unpacked_weight_col
+                ]),
                 "creation": bool(creation_col),
                 "due": bool(due_col),
                 "expiration": bool(expiration_col),
@@ -149,6 +169,10 @@ class DataLoader:
             },
             "column_names": {
                 "weight": str(weight_col) if weight_col else "",
+                "request_code": str(request_code_col) if request_code_col else "",
+                "destination": str(destination_col) if destination_col else "",
+                "part_code": str(part_code_col) if part_code_col else "",
+                "vehicle_code": str(vehicle_code_col) if vehicle_code_col else "",
                 "creation": str(creation_col) if creation_col else "",
                 "due": str(due_col) if due_col else "",
                 "expiration": str(expiration_col) if expiration_col else "",
@@ -187,6 +211,11 @@ class DataLoader:
                 simulated_weight = float(row[weight_col])
             else:
                 simulated_weight = 1000.0
+            unpacked_weight = (
+                float(row[unpacked_weight_col])
+                if unpacked_weight_col and not pd.isna(row[unpacked_weight_col])
+                else None
+            )
             
             # 時間軸: 列が存在すればそれを使用、なければ今日に設定
             creation_date = self._parse_date(row[creation_col], today) if creation_col else today
@@ -214,6 +243,17 @@ class DataLoader:
             
             floor_only = self._parse_bool(row[floor_only_col], False) if floor_only_col else False
             separation_group = self._parse_group(row[separation_group_col]) if separation_group_col else ""
+            request_code = str(row[request_code_col]).strip() if request_code_col and not pd.isna(row[request_code_col]) else ""
+            shipper = str(row[shipper_col]).strip() if shipper_col and not pd.isna(row[shipper_col]) else ""
+            consignee = str(row[consignee_col]).strip() if consignee_col and not pd.isna(row[consignee_col]) else ""
+            destination = str(row[destination_col]).strip() if destination_col and not pd.isna(row[destination_col]) else ""
+            part_code = str(row[part_code_col]).strip() if part_code_col and not pd.isna(row[part_code_col]) else ""
+            vehicle_code = str(row[vehicle_code_col]).strip() if vehicle_code_col and not pd.isna(row[vehicle_code_col]) else ""
+            vessel_loading_date = (
+                self._parse_date(row[vessel_loading_date_col], None)
+                if vessel_loading_date_col
+                else None
+            )
 
             item = Item(
                 id=str(uuid.uuid4())[:8],
@@ -226,6 +266,14 @@ class DataLoader:
                 creation_date=creation_date,
                 due_date=due_date,
                 expiration_date=expiration_date,
+                request_code=request_code,
+                shipper=shipper,
+                consignee=consignee,
+                destination=destination,
+                part_code=part_code,
+                vehicle_code=vehicle_code,
+                unpacked_weight=unpacked_weight,
+                vessel_loading_date=vessel_loading_date,
                 priority=priority,
                 force_ship=force_ship,
                 allow_early_ship=allow_early_ship,
