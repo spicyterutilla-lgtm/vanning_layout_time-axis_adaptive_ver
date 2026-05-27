@@ -11,6 +11,7 @@ class Space:
     length: float
     width: float
     height: float
+    max_supported_weight: Optional[float] = None
 
 class Packer3D:
     """
@@ -42,6 +43,12 @@ class Packer3D:
         for space in self.free_spaces:
             if item.floor_only and space.z > 0.001:
                 continue
+            if (
+                space.z > 0.001
+                and space.max_supported_weight is not None
+                and item.weight > space.max_supported_weight
+            ):
+                continue
             for l, w, is_rotated in orientations:
                 if l <= space.length and w <= space.width and item.height <= space.height:
                     candidates.append((
@@ -61,7 +68,7 @@ class Packer3D:
         item.z = space.z
         item.is_rotated = is_rotated
 
-        self._split_space(space, l, w, item.height, allow_top_space=item.stackable)
+        self._split_space(space, l, w, item.height, item.weight, allow_top_space=item.stackable)
         self._prune_free_spaces()
         return True
 
@@ -83,7 +90,7 @@ class Packer3D:
             space.y,
         )
 
-    def _split_space(self, space: Space, item_l: float, item_w: float, item_h: float, allow_top_space: bool = True):
+    def _split_space(self, space: Space, item_l: float, item_w: float, item_h: float, item_weight: float, allow_top_space: bool = True):
         """
         荷物を配置したことで失われた空間を取り除き、残りの空間を3つの新しい空間に分割する。
         （Guillotine Splitアルゴリズム）
@@ -100,7 +107,8 @@ class Packer3D:
                 z=space.z + item_h, 
                 length=item_l, 
                 width=item_w, 
-                height=space.height - item_h
+                height=space.height - item_h,
+                max_supported_weight=item_weight,
             )
             self.free_spaces.append(top_space)
 
@@ -111,18 +119,18 @@ class Packer3D:
         if area_horizontal > area_vertical:
             # 水平（右側を広く）カット
             if space.width - item_w > 0:
-                right_space = Space(space.x, space.y + item_w, space.z, space.length, space.width - item_w, space.height)
+                right_space = Space(space.x, space.y + item_w, space.z, space.length, space.width - item_w, space.height, space.max_supported_weight)
                 self.free_spaces.append(right_space)
             if space.length - item_l > 0:
-                front_space = Space(space.x + item_l, space.y, space.z, space.length - item_l, item_w, space.height)
+                front_space = Space(space.x + item_l, space.y, space.z, space.length - item_l, item_w, space.height, space.max_supported_weight)
                 self.free_spaces.append(front_space)
         else:
             # 垂直（手前を広く）カット
             if space.width - item_w > 0:
-                right_space = Space(space.x, space.y + item_w, space.z, item_l, space.width - item_w, space.height)
+                right_space = Space(space.x, space.y + item_w, space.z, item_l, space.width - item_w, space.height, space.max_supported_weight)
                 self.free_spaces.append(right_space)
             if space.length - item_l > 0:
-                front_space = Space(space.x + item_l, space.y, space.z, space.length - item_l, space.width, space.height)
+                front_space = Space(space.x + item_l, space.y, space.z, space.length - item_l, space.width, space.height, space.max_supported_weight)
                 self.free_spaces.append(front_space)
 
     def _contains_space(self, outer: Space, inner: Space) -> bool:
