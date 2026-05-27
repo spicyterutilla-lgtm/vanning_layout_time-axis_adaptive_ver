@@ -7,8 +7,6 @@
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const btnRun = document.getElementById('btn-run');
-const btnRolling = document.getElementById('btn-rolling');
-const btnScenario = document.getElementById('btn-scenario');
 
 // --- State ---
 let currentContainersData = [];
@@ -22,6 +20,30 @@ function esc(v) {
 function num(id, fallback, min, max) {
     const v = parseInt(document.getElementById(id)?.value, 10);
     return Math.min(max, Math.max(min, Number.isFinite(v) ? v : fallback));
+}
+
+function applyPlanningContext(context) {
+    const baseDateInput = document.getElementById('base-date');
+    if (baseDateInput) {
+        if (context?.recommended_base_date) baseDateInput.value = context.recommended_base_date;
+        else baseDateInput.valueAsDate = new Date();
+    }
+
+    const box = document.getElementById('planning-context');
+    if (!box) return;
+    if (!context?.vessel_loading_date) {
+        box.style.display = 'none';
+        box.innerHTML = '';
+        return;
+    }
+    box.style.display = 'grid';
+    box.innerHTML = `
+        <div class="planning-title">今回の船積計画</div>
+        <div class="planning-stat"><span>情報受領</span><strong>${esc(context.cargo_information_date)}</strong></div>
+        <div class="planning-stat"><span>レイアウト確定</span><strong>${esc(context.layout_confirmation_date)}</strong></div>
+        <div class="planning-stat emphasis"><span>バンニング期間</span><strong>${esc(context.vanning_start_date)} - ${esc(context.vanning_end_date)}</strong></div>
+        <div class="planning-stat"><span>船積日</span><strong>${esc(context.vessel_loading_date)}</strong></div>
+    `;
 }
 
 // =====================
@@ -44,7 +66,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const data = await res.json();
         if (data.has_data) {
             document.getElementById('total-items').textContent = data.total_items;
-            document.getElementById('base-date').valueAsDate = new Date();
+            applyPlanningContext(data.simulation_context);
             renderValidation(data);
             showStep(2);
         }
@@ -76,7 +98,7 @@ async function uploadFile(file) {
         const data = await res.json();
         if (res.ok) {
             document.getElementById('total-items').textContent = data.total_items;
-            document.getElementById('base-date').valueAsDate = new Date();
+            applyPlanningContext(data.simulation_context);
             renderValidation(data);
             showStep(2);
         } else {
@@ -97,7 +119,10 @@ function renderValidation(data) {
     if (!s || s.total === 0) { bar.style.display = 'none'; return; }
     bar.style.display = 'flex';
     bar.className = 'validation-bar';
-    bar.textContent = `⚠ エラー除外 ${s.errors}件 / 注意 ${s.warnings}件`;
+    const messages = [];
+    if (s.errors > 0) messages.push(`入力エラー除外 ${s.errors}件`);
+    if (s.warnings > 0) messages.push(`確認対象 ${s.warnings}件`);
+    bar.textContent = messages.join(' / ');
 }
 
 // =====================
@@ -106,7 +131,7 @@ function renderValidation(data) {
 btnRun.addEventListener('click', async () => {
     showStep(3);
     const loadingText = document.getElementById('loading-text');
-    const phases = ["データ構造を解析中...", "納期と期限を評価中...", "空き埋め候補を探索中...", "3D配置を計算中...", "結果を生成中..."];
+    const phases = ["データ構造を解析中...", "納入予定と積込期限を評価中...", "空き埋め候補を探索中...", "3D配置を計算中...", "結果を生成中..."];
     let pi = 0;
     const interval = setInterval(() => { pi = (pi + 1) % phases.length; if (loadingText) loadingText.textContent = phases[pi]; }, 700);
 
@@ -131,20 +156,15 @@ btnRun.addEventListener('click', async () => {
 // =====================
 function renderDashboard(data) {
     currentContainersData = data.containers;
-    const cmp = data.comparison || {};
-    const before = cmp.baseline || {};
-    const after = cmp.optimized || {};
-    const delta = cmp.delta || {};
 
-    // --- KPI Cards ---
+    // --- Worker-Friendly KPI Cards ---
     document.getElementById('kpi-containers').textContent = data.containers.length;
     const cDelta = document.getElementById('kpi-containers-delta');
-    if (delta.container_count > 0) {
-        cDelta.textContent = `前倒しなし比 −${delta.container_count}本`;
-        cDelta.className = 'kpi-delta good';
-    } else if (delta.container_count < 0) {
-        cDelta.textContent = `前倒しなし比 +${Math.abs(delta.container_count)}本`;
-        cDelta.className = 'kpi-delta bad';
+    const optimization = data.optimization_summary || {};
+    if (Number.isFinite(optimization.capacity_lower_bound)) {
+        const gap = optimization.container_gap_to_lower_bound || 0;
+        cDelta.textContent = `容量・重量下限 ${optimization.capacity_lower_bound}本との差 +${gap}本`;
+        cDelta.className = `kpi-delta ${gap === 0 ? 'good' : 'neutral'}`;
     } else {
         cDelta.textContent = '';
         cDelta.className = 'kpi-delta';
@@ -154,27 +174,66 @@ function renderDashboard(data) {
     document.getElementById('kpi-alerts').textContent = alertCount;
     const alertCard = document.getElementById('kpi-card-alerts');
     alertCard.classList.toggle('has-alert', alertCount > 0);
+    const alertDelta = document.getElementById('kpi-alerts-delta');
+    const minimumAlerts = optimization.volume_only_minimum_alerts || 0;
+    alertDelta.textContent = minimumAlerts > 0 ? `体積総量上の最低 ${minimumAlerts}本` : '';
+    alertDelta.className = 'kpi-delta neutral';
 
-    const avgVol = after.avg_volume_rate ?? (data.containers.length ? Math.round(data.containers.reduce((s,c) => s + c.volume_rate, 0) / data.containers.length * 10) / 10 : 0);
+    const avgVol = data.containers.length
+        ? Math.round(data.containers.reduce((s, c) => s + c.volume_rate, 0) / data.containers.length * 10) / 10
+        : 0;
     document.getElementById('kpi-fillrate').textContent = avgVol;
     const fDelta = document.getElementById('kpi-fillrate-delta');
-    if (delta.avg_volume_rate > 0) {
-        fDelta.textContent = `+${delta.avg_volume_rate}pt 改善`;
-        fDelta.className = 'kpi-delta good';
-    } else if (delta.avg_volume_rate < 0) {
-        fDelta.textContent = `${delta.avg_volume_rate}pt`;
-        fDelta.className = 'kpi-delta bad';
-    } else {
-        fDelta.textContent = '';
-    }
+    fDelta.textContent = '目標 80%以上';
+    fDelta.className = 'kpi-delta neutral';
 
     // --- Summary Line ---
     const sl = document.getElementById('summary-line');
-    const pullText = (data.total_pulls > 0) ? ` / 空き埋め <strong>${data.total_pulls}</strong>件` : '';
+
+    let inventoryText = '';
+    if (data.inventory_stats) {
+        const stats = data.inventory_stats;
+        const lateArrivalText = stats.future_count > 0
+            ? `<span class="badge alert">期限後納入予定 <strong>${stats.future_count}</strong>個</span>`
+            : '';
+        inventoryText = `
+            <div class="summary-row">
+                <span class="badge info">📦 全荷物 <strong>${stats.total_valid_items}</strong>個</span>
+                <span class="badge danger">🚨 今回積込対象 <strong>${stats.must_ship_count}</strong>個</span>
+                <span class="badge success">📅 追加積載候補 <strong>${stats.forwardable_count}</strong>個</span>
+                ${lateArrivalText}
+            </div>
+        `;
+    }
+
+    const pullText = (data.total_pulls > 0) ? `<span class="badge warning">✨ 隙間埋め <strong>${data.total_pulls}</strong>個</span>` : '';
+    const improvedAlerts = data.layout_improvements?.improved_alert_containers || 0;
+    const rearrangeText = improvedAlerts > 0
+        ? `<span class="badge success">🔄 再配置で改善 <strong>${improvedAlerts}</strong>本</span>`
+        : '';
+    const strategyText = optimization.strategy_trial_count > 1
+        ? (optimization.deep_strategy_trial_count > 0
+            ? `<span class="badge info">候補 <strong>${optimization.strategy_trial_count}</strong>案 / 深掘り <strong>${optimization.deep_strategy_trial_count}</strong>案</span>`
+            : `<span class="badge info">配置候補 <strong>${optimization.strategy_trial_count}</strong>案を比較</span>`)
+        : '';
+    const geometryText = optimization.geometry_valid
+        ? `<span class="badge success">3D配置確認済み</span>`
+        : `<span class="badge alert">3D配置確認 <strong>${optimization.geometry_warning_count || 0}</strong>件</span>`;
     const alertHtml = alertCount > 0
-        ? ` / <span class="accent">要確認 ${alertCount}本</span>`
-        : ' / <span class="ok">全て80%クリア</span>';
-    sl.innerHTML = `<strong>${data.containers.length}本</strong>で確定${pullText}${alertHtml}`;
+        ? `<span class="badge alert">⚠️ スカスカ注意 <strong>${alertCount}</strong>本</span>`
+        : `<span class="badge ok">✅ 全本80%以上クリア</span>`;
+
+    sl.innerHTML = `
+        ${inventoryText}
+        <div class="summary-row" style="margin-top: 0.75rem;">
+            <span class="badge primary">🚚 <strong>${data.containers.length}</strong>本で確定</span>
+            ${pullText}
+            ${rearrangeText}
+            ${strategyText}
+            ${geometryText}
+            ${alertHtml}
+        </div>
+    `;
 
     // --- Container Grid ---
     const grid = document.getElementById('container-grid');
@@ -185,28 +244,25 @@ function renderDashboard(data) {
         const pullCount = c.items.filter(i => i.status_msg && i.status_msg.includes('前倒し')).length;
         const isPulled = pullCount > 0 && !isAlert;
 
-        let statusClass, signalClass, badgeClass, badgeText;
+        let statusClass, badgeClass, badgeText;
         if (isAlert) {
-            statusClass = 'alert'; signalClass = 'red'; badgeClass = 'alert'; badgeText = '要確認';
+            statusClass = 'alert'; badgeClass = 'alert'; badgeText = 'スカスカ注意';
         } else if (isPulled) {
-            statusClass = 'warn'; signalClass = 'yellow'; badgeClass = 'warn'; badgeText = '補填済み';
+            statusClass = 'warn'; badgeClass = 'warn'; badgeText = '空き埋め済み';
         } else {
-            statusClass = 'ok'; signalClass = 'green'; badgeClass = 'ok'; badgeText = 'OK';
+            statusClass = 'ok'; badgeClass = 'ok'; badgeText = '出荷OK';
         }
 
-        // Fill bar
-        const volRate = c.volume_rate;
-        const fillClass = volRate >= 80 ? 'ok' : volRate >= 60 ? 'warn' : 'alert';
+        const volRate = Number(c.volume_rate).toFixed(1);
+        const fillClass = c.volume_rate >= 80 ? 'ok' : c.volume_rate >= 60 ? 'warn' : 'alert';
 
-        // Short reason
         let reasonHtml = '';
         if (isAlert && c.alert_reason_title) {
             reasonHtml = `<div class="c-reason force">${esc(c.alert_reason_title)}</div>`;
         } else if (isPulled) {
-            reasonHtml = `<div class="c-reason pull">空き埋め ${pullCount}件で80%達成</div>`;
+            reasonHtml = `<div class="c-reason pull">空きスペース埋め ${pullCount}個で80%達成</div>`;
         }
 
-        // Item details (collapsed)
         let itemsHtml = '';
         c.items.forEach(i => {
             let tagHtml = '';
@@ -224,32 +280,44 @@ function renderDashboard(data) {
         card.className = `c-card ${statusClass}`;
         card.innerHTML = `
             <div class="c-head">
-                <div class="c-num"><span class="signal ${signalClass}"></span>${c.display_order ?? ''}本目</div>
+                <div class="c-num"><span class="container-icon">📦</span> ${c.display_order ?? ''}本目</div>
                 <span class="c-badge ${badgeClass}">${badgeText}</span>
             </div>
-            <div class="fill-bar">
-                <div class="bar-head">
-                    <span class="bar-label">積載率</span>
-                    <span class="bar-val">${volRate}%</span>
+
+            <div class="container-graphic">
+                <div class="container-body">
+                    <div class="container-fill ${fillClass}" style="width:${Math.min(100, volRate)}%"></div>
+                    <div class="container-text">${volRate}% 埋まっています</div>
                 </div>
-                <div class="fill-track"><div class="fill-bar-inner ${fillClass}" style="width:${Math.min(100, volRate)}%"></div></div>
             </div>
-            <div class="c-stats">
-                <span>荷物 <strong>${c.items.length}</strong>件</span>
-                <span>重量 <strong>${Math.round(c.weight_val).toLocaleString()}</strong>kg</span>
+
+            <div class="c-stats-grid">
+                <div class="stat-box">
+                    <div class="stat-lbl">体積充填率</div>
+                    <div class="stat-val ${fillClass}">${volRate}<small>%</small></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-lbl">総重量</div>
+                    <div class="stat-val">${Math.round(c.weight_val).toLocaleString()}<small>kg</small></div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-lbl">荷物数</div>
+                    <div class="stat-val">${c.items.length}<small>個</small></div>
+                </div>
             </div>
+
             ${reasonHtml}
-            <div class="c-footer" onclick="open3D('${c.id}')">📦 3Dで中身を見る</div>
+
+            <div class="c-footer">
+                <button class="btn-3d" onclick="open3D('${c.id}')">📦 3Dで中身を見る</button>
+            </div>
+
             <details class="c-details">
                 <summary>荷物一覧 (${c.items.length}件)</summary>
                 <div style="margin-top:0.5rem;">${itemsHtml}</div>
             </details>
         `;
-        // Card click opens 3D (except details area)
-        card.addEventListener('click', (e) => {
-            if (e.target.closest('.c-details') || e.target.closest('.c-footer') || e.target.closest('.c-item-row')) return;
-            open3D(c.id);
-        });
+
         grid.appendChild(card);
     });
 }
@@ -276,151 +344,6 @@ async function toggleOverride(itemIds, forceShip) {
 // Export
 // =====================
 function downloadExcel() { window.location.href = '/api/export'; }
-function downloadRollingExcel() { window.location.href = '/api/export_rolling'; }
-
-// =====================
-// Admin Panel (Rolling / Scenarios)
-// =====================
-function toggleAdmin(e) {
-    e.preventDefault();
-    const panel = document.getElementById('admin-panel');
-    const toggle = document.getElementById('admin-toggle');
-    const isVisible = panel.classList.contains('visible');
-    panel.classList.toggle('visible');
-    toggle.textContent = isVisible ? '管理者向け分析 ▸' : '管理者向け分析 ▾';
-}
-
-if (btnRolling) btnRolling.addEventListener('click', async () => {
-    showStep(3);
-    const loadingText = document.getElementById('loading-text');
-    if (loadingText) loadingText.textContent = 'ローリングシミュレーション計算中...';
-
-    const baseDate = document.getElementById('base-date').value;
-    const days = num('rolling-days', 30, 1, 90);
-
-    try {
-        const res = await fetch('/api/rolling', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ base_date: baseDate, days: days })
-        });
-        const data = await res.json();
-        if (res.ok) { renderAdminRolling(data); showStep(4); }
-        else { alert('エラー: ' + data.error); showStep(4); }
-    } catch(e) { alert('通信エラー'); showStep(4); }
-});
-
-if (btnScenario) btnScenario.addEventListener('click', async () => {
-    showStep(3);
-    const loadingText = document.getElementById('loading-text');
-    if (loadingText) loadingText.textContent = 'シナリオ比較中...';
-
-    const baseDate = document.getElementById('base-date').value;
-    const mustWindow = num('must-window', 7, 0, 30);
-
-    try {
-        const res = await fetch('/api/scenarios', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ base_date: baseDate, must_ship_window_days: mustWindow })
-        });
-        const data = await res.json();
-        if (res.ok) { renderAdminScenarios(data); showStep(4); }
-        else { alert('エラー: ' + data.error); showStep(4); }
-    } catch(e) { alert('通信エラー'); showStep(4); }
-});
-
-function renderAdminRolling(data) {
-    // Minimal dashboard for rolling
-    currentContainersData = [];
-    document.getElementById('kpi-containers').textContent = data.total_containers;
-    document.getElementById('kpi-containers-delta').textContent = `${data.days}日間`;
-    document.getElementById('kpi-containers-delta').className = 'kpi-delta neutral';
-    document.getElementById('kpi-alerts').textContent = data.total_alert_containers;
-    document.getElementById('kpi-card-alerts').classList.toggle('has-alert', data.total_alert_containers > 0);
-    document.getElementById('kpi-fillrate').textContent = data.avg_volume_rate;
-    document.getElementById('kpi-fillrate-delta').textContent = `空き埋め ${data.total_pulls}件`;
-    document.getElementById('kpi-fillrate-delta').className = 'kpi-delta good';
-
-    const sl = document.getElementById('summary-line');
-    sl.innerHTML = `<strong>${esc(data.start_date)} 〜 ${esc(data.end_date)}</strong> / 出荷 <strong>${data.total_shipped}</strong>件 / 週平均 <strong>${data.weekly_container_rate}</strong>本`;
-
-    const grid = document.getElementById('container-grid');
-    grid.innerHTML = '';
-    const active = data.daily_results.filter(d => d.containers > 0 || d.must_ship > 0);
-    (active.length ? active : data.daily_results.slice(0, 7)).forEach(d => {
-        const isAlert = d.alerts > 0;
-        const card = document.createElement('div');
-        card.className = `c-card ${isAlert ? 'alert' : d.pulls > 0 ? 'warn' : 'ok'}`;
-        card.innerHTML = `
-            <div class="c-head">
-                <div class="c-num">${esc(d.date)}</div>
-                <span class="c-badge ${isAlert ? 'alert' : 'ok'}">${d.containers}本</span>
-            </div>
-            <div class="fill-bar">
-                <div class="bar-head"><span class="bar-label">平均積載率</span><span class="bar-val">${d.avg_volume_rate}%</span></div>
-                <div class="fill-track"><div class="fill-bar-inner ${d.avg_volume_rate >= 80 ? 'ok' : 'alert'}" style="width:${Math.min(100, d.avg_volume_rate)}%"></div></div>
-            </div>
-            <div class="c-stats">
-                <span>出荷 <strong>${d.shipped}</strong></span>
-                <span>空き埋め <strong>${d.pulls}</strong></span>
-                <span>赤字 <strong>${d.alerts}</strong></span>
-            </div>`;
-        grid.appendChild(card);
-    });
-
-    // Show rolling export
-    const rollingExport = document.getElementById('btn-export-rolling');
-    if (rollingExport) rollingExport.style.display = '';
-    const mainExport = document.getElementById('btn-export');
-    if (mainExport) mainExport.style.display = 'none';
-}
-
-function renderAdminScenarios(data) {
-    currentContainersData = [];
-    const scenarios = data.scenarios || [];
-    const rec = data.recommended || {};
-
-    document.getElementById('kpi-containers').textContent = scenarios.length;
-    document.getElementById('kpi-containers-delta').textContent = 'シナリオ数';
-    document.getElementById('kpi-containers-delta').className = 'kpi-delta neutral';
-    document.getElementById('kpi-alerts').textContent = rec.alert_containers ?? 0;
-    document.getElementById('kpi-card-alerts').classList.toggle('has-alert', (rec.alert_containers ?? 0) > 0);
-    document.getElementById('kpi-fillrate').textContent = rec.avg_volume_rate ?? 0;
-    document.getElementById('kpi-fillrate-delta').textContent = `推奨: ${rec.must_ship_window_days ?? '-'}日`;
-    document.getElementById('kpi-fillrate-delta').className = 'kpi-delta good';
-
-    const sl = document.getElementById('summary-line');
-    sl.innerHTML = `<strong>${esc(data.base_date)}</strong> 基準 / 推奨は <strong>${rec.must_ship_window_days ?? '-'}日</strong>先読み`;
-
-    const grid = document.getElementById('container-grid');
-    grid.innerHTML = '';
-    scenarios.forEach(s => {
-        const isRec = s.recommended;
-        const card = document.createElement('div');
-        card.className = `c-card ${isRec ? 'ok' : s.alert_containers > 0 ? 'alert' : 'warn'}`;
-        card.innerHTML = `
-            <div class="c-head">
-                <div class="c-num">${s.must_ship_window_days}日先読み</div>
-                <span class="c-badge ${isRec ? 'ok' : 'warn'}">${isRec ? '推奨' : '比較'}</span>
-            </div>
-            <div class="fill-bar">
-                <div class="bar-head"><span class="bar-label">平均積載率</span><span class="bar-val">${s.avg_volume_rate}%</span></div>
-                <div class="fill-track"><div class="fill-bar-inner ${s.avg_volume_rate >= 80 ? 'ok' : 'alert'}" style="width:${Math.min(100, s.avg_volume_rate)}%"></div></div>
-            </div>
-            <div class="c-stats">
-                <span>コンテナ <strong>${s.container_count}</strong></span>
-                <span>要確認 <strong>${s.alert_containers}</strong></span>
-                <span>空き埋め <strong>${s.total_pulls}</strong></span>
-            </div>`;
-        grid.appendChild(card);
-    });
-
-    const mainExport = document.getElementById('btn-export');
-    if (mainExport) { mainExport.style.display = ''; mainExport.textContent = '📋 シナリオ比較を出力'; mainExport.onclick = () => { window.location.href = '/api/export_scenarios'; }; }
-    const rollingExport = document.getElementById('btn-export-rolling');
-    if (rollingExport) rollingExport.style.display = 'none';
-}
 
 // =====================
 // 3D Visualization (Three.js)
@@ -446,8 +369,7 @@ function init3D() {
     container.appendChild(renderer.domElement);
 
     controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    controls.enableDamping = false;
 
     window.addEventListener('resize', () => {
         const modal = document.getElementById('modal-3d');
@@ -506,7 +428,21 @@ function open3D(containerId) {
 
     setTimeout(() => {
         init3D();
-        while (scene.children.length > 0) scene.remove(scene.children[0]);
+
+        // メモリリーク（かくつき）防止のため、古いオブジェクトを完全に破棄
+        if (scene) {
+            scene.traverse(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                    else child.material.dispose();
+                }
+            });
+            while (scene.children.length > 0) {
+                scene.remove(scene.children[0]);
+            }
+        }
+
         interactableMeshes = [];
         document.getElementById('3d-tooltip').style.display = 'none';
 
@@ -537,7 +473,7 @@ function open3D(containerId) {
             <table>
                 <tr><td class="lbl">内寸</td><td class="val">12.0 × 2.30 × 2.40 m</td></tr>
                 <tr><td class="lbl">重量</td><td class="val">${Math.round(cData.weight_val).toLocaleString()} / ${cData.weight_max.toLocaleString()} kg</td></tr>
-                <tr><td class="lbl">積載率</td><td class="val" style="color:#10b981;">${cData.volume_rate}%</td></tr>
+                <tr><td class="lbl">体積充填率</td><td class="val" style="color:#10b981;">${Number(cData.volume_rate).toFixed(1)}%</td></tr>
             </table>`;
 
         // Items
