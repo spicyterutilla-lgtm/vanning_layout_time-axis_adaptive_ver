@@ -48,38 +48,57 @@ def build_simulation_context(items, input_profile=None, generation_parameters=No
     due_dates = [item.due_date for item in items if item.due_date]
     weights = [item.weight for item in items if item.weight is not None]
 
+    evaluation_date = today
+    vanning_end_parameter = str(generation_parameters.get("バンニング完了期限", "")).strip()
+    if vanning_end_parameter:
+        try:
+            evaluation_date = datetime.datetime.strptime(vanning_end_parameter, "%Y-%m-%d").date()
+        except ValueError:
+            evaluation_date = today
     wood_deadline_count = sum(1 for item in items if item.expiration_date)
-    future_count = sum(1 for item in items if item.creation_date > today)
+    future_count = sum(1 for item in items if item.creation_date > evaluation_date)
     arrived_count = total - future_count
     is_generated = bool(input_profile.get("generated_simulation"))
     detected = input_profile.get("detected_columns", {})
     if is_generated:
         source_rows = [
             {"item": "ケース寸法・箱タイプ", "status": "開示資料ベース", "basis": "ケースマスタ", "note": "いすゞロジスティック開示ケースリストの寸法を使用"},
-            {"item": "重量", "status": "仮定", "basis": "重量密度レンジ", "note": "先方回答が来たら実績重量・階級で差し替え"},
-            {"item": "出現頻度", "status": "仮定", "basis": "ケース階級比率", "note": "実際の週次・月次出現比率で更新対象"},
-            {"item": "積載可能日・納期", "status": "仮定", "basis": "日付分布", "note": "入荷日・納期分布の回答待ち"},
-            {"item": "木箱期限", "status": "仮定", "basis": "木箱期限候補", "note": "木箱保管期限ルールの回答待ち"},
-            {"item": "積み方", "status": "自動判定", "basis": "重量順・3D配置", "note": "重量が重い荷物を先に低い位置へ配置"},
+            {"item": "計画工程", "status": "先方回答ベース", "basis": "船積日からのリードタイム", "note": "情報受領は約3週間前、レイアウト確定は約2週間前、積込みは約1週間前から2日前まで"},
+            {"item": "管理項目", "status": "項目は先方回答", "basis": "開示回答", "note": "仕向け地・部品コード・車両コード・梱包前後重量・依頼コード等を追加。値は匿名サンプル"},
+            {"item": "重量", "status": "採用仮定", "basis": "重量密度レンジ", "note": "実値非開示のため、検証条件として密度レンジから生成"},
+            {"item": "出現頻度", "status": "採用仮定", "basis": "ケース階級比率", "note": "実績頻度非開示のため、週次規模検証用の比率を採用"},
+            {"item": "納入予定日分布", "status": "採用仮定", "basis": "日付分布", "note": "管理項目であることは回答済み。分布は検証条件として採用"},
+            {"item": "木箱期限", "status": "採用仮定", "basis": "木箱期限候補", "note": "期限ルール非開示のため、14/21/28日を検証条件として採用"},
+            {"item": "積み方", "status": "自動判定", "basis": "底面優先・3D配置", "note": "大きい底面を土台にし、上の荷物が下側より重くならないよう配置"},
         ]
-        summary_note = "寸法は開示資料ベース、重量・頻度・日付は暫定仮定です。積み方は重量順で自動判定します。"
+        summary_note = "工程・管理項目の種類・運用規模は先方回答ベース、寸法は開示資料ベースです。非開示の重量・頻度・納入日分布・木箱期限は、明示した採用仮定で評価しています。"
     else:
         source_rows = [
             {"item": "ケース寸法・品名", "status": "入力Excel", "basis": "L/W/H/名称", "note": "読み込んだExcelの値を使用"},
             {"item": "重量", "status": "入力Excel" if detected.get("weight") else "補完", "basis": "重量列", "note": "列がない場合は補完値のため要確認"},
-            {"item": "積載可能日", "status": "入力Excel" if detected.get("creation") else "補完", "basis": "積載可能日/到着日", "note": "列がない場合は当日扱い"},
-            {"item": "納期", "status": "入力Excel" if detected.get("due") else "補完", "basis": "納期", "note": "列がない場合は7日後扱い"},
+            {"item": "納入予定日", "status": "入力Excel" if detected.get("creation") else "補完", "basis": "納入予定日/積載可能日/到着日", "note": "列がない場合は当日扱い"},
+            {"item": "積込期限", "status": "入力Excel" if detected.get("due") else "補完", "basis": "バンニング完了期限/納期", "note": "列がない場合は7日後扱い"},
             {"item": "木箱期限", "status": "入力Excel" if detected.get("expiration") else "補完", "basis": "木箱期限", "note": "列がない場合は木箱のみ補完"},
-            {"item": "積み方", "status": "自動判定", "basis": "重量順・3D配置", "note": "重量が重い荷物を先に低い位置へ配置"},
+            {"item": "積み方", "status": "自動判定", "basis": "底面優先・3D配置", "note": "大きい底面を土台にし、上の荷物が下側より重くならないよう配置"},
         ]
-        summary_note = "読み込んだExcelの主要列を優先し、積み方と前倒し候補は自動判定しています。"
+        summary_note = "読み込んだExcelの主要列を優先し、積み方と追加積載候補は自動判定しています。"
 
     return {
         "is_generated": is_generated,
         "loaded_count": total,
         "generated_rows_setting": coerce_float(generation_parameters.get("生成行数")),
         "seed": str(generation_parameters.get("乱数シード", "")).strip(),
-        "placement_policy": "重量が重い荷物を先に低い位置へ置き、体積80%を目標に補填します。",
+        "assumption_profile_name": str(generation_parameters.get("前提プロファイル名", "")).strip(),
+        "assumption_profile_version": str(generation_parameters.get("前提バージョン", "")).strip(),
+        "assumption_policy": str(generation_parameters.get("非開示値の扱い", "")).strip(),
+        "cargo_information_date": str(generation_parameters.get("出荷情報受領日", "")).strip(),
+        "layout_confirmation_date": str(generation_parameters.get("レイアウト確定期限", "")).strip(),
+        "vanning_start_date": str(generation_parameters.get("バンニング開始日", "")).strip(),
+        "vanning_end_date": str(generation_parameters.get("バンニング完了期限", "")).strip(),
+        "vessel_loading_date": str(generation_parameters.get("船積日", "")).strip(),
+        "recommended_base_date": str(generation_parameters.get("バンニング完了期限", "")).strip(),
+        "availability_reference_label": "完了期限時点" if is_generated and vanning_end_parameter else "本日時点",
+        "placement_policy": "大きい底面を土台にし、上側が下側より重くならない配置で体積80%を目標にします。",
         "wood_deadline_rate": safe_rate(wood_deadline_count, total),
         "arrived_rate": safe_rate(arrived_count, total),
         "future_rate": safe_rate(future_count, total),
@@ -167,12 +186,31 @@ def weighted_choice(randomizer, weighted_values):
             return value
     return weighted_values[-1][0]
 
-def generate_case_based_simulation_rows(case_master, row_count=200, assumptions=None, seed=20260516):
+def build_planning_dates(assumptions, planning_date=None):
+    planning_date = planning_date or datetime.date.today()
+    timeline = assumptions.get("planning_timeline", {})
+    layout_lead = int(timeline.get("layout_confirmation_lead_days", 14))
+    cargo_lead = int(timeline.get("cargo_information_lead_days", 21))
+    vanning_start_lead = int(timeline.get("vanning_start_lead_days", 7))
+    vanning_end_lead = int(timeline.get("vanning_end_lead_days", 2))
+    vessel_loading_date = planning_date + datetime.timedelta(days=layout_lead)
+    return {
+        "出荷情報受領日": vessel_loading_date - datetime.timedelta(days=cargo_lead),
+        "レイアウト確定期限": planning_date,
+        "バンニング開始日": vessel_loading_date - datetime.timedelta(days=vanning_start_lead),
+        "バンニング完了期限": vessel_loading_date - datetime.timedelta(days=vanning_end_lead),
+        "船積日": vessel_loading_date,
+    }
+
+def generate_case_based_simulation_rows(case_master, row_count=800, assumptions=None, seed=20260516, planning_dates=None):
     import random
 
     assumptions = assumptions or {}
     randomizer = random.Random(seed)
-    today = datetime.date.today()
+    planning_dates = planning_dates or build_planning_dates(assumptions)
+    vanning_start_date = planning_dates["バンニング開始日"]
+    vanning_end_date = planning_dates["バンニング完了期限"]
+    vessel_loading_date = planning_dates["船積日"]
     class_weights = assumptions["class_weights"]
     density_ranges = assumptions["density_ranges"]
     density_mix = assumptions["density_mix"]
@@ -201,28 +239,30 @@ def generate_case_based_simulation_rows(case_master, row_count=200, assumptions=
 
         arrival_bucket = weighted_choice(randomizer, arrival_distribution)
         creation_offset = randomizer.randint(*arrival_bucket["offset_days"])
-
-        due_offset = max(
-            creation_offset + randomizer.randint(*assumptions["due_after_arrival_days"]),
-            randomizer.randint(*assumptions["due_offset_days"])
-        )
-        creation_date = today + datetime.timedelta(days=creation_offset)
-        due_date = today + datetime.timedelta(days=due_offset)
+        creation_date = vanning_start_date + datetime.timedelta(days=creation_offset)
+        due_date = vanning_end_date
 
         is_wood = case["分類"] == "木箱"
         expiration_date = ""
         if is_wood:
-            expiration_offset = max(due_offset, creation_offset + randomizer.choice(assumptions["wood_expiration_days"]))
-            expiration_date = (today + datetime.timedelta(days=expiration_offset)).strftime("%Y-%m-%d")
+            expiration_date_value = max(
+                due_date,
+                creation_date + datetime.timedelta(days=randomizer.choice(assumptions["wood_expiration_days"]))
+            )
+            expiration_date = expiration_date_value.strftime("%Y-%m-%d")
 
-        priority = next(
-            row["priority"]
-            for row in assumptions["priority_thresholds"]
-            if due_offset <= row["due_days"]
-        )
+        priority = 70 if creation_date > vanning_end_date else 50
         item_name = f"ISZ-{case_class}-{case['資材名称']}-{index:04d}"
+        packed_weight = weight
+        unpacked_weight = max(10, round((packed_weight * 0.95) / 10) * 10)
 
         rows.append({
+            "依頼コード": f"REQ-{vessel_loading_date.strftime('%Y%m%d')}-{index:04d}",
+            "出荷者名": "サンプル出荷者-01",
+            "受取者名": "サンプル受取者-01",
+            "仕向け地": "サンプル仕向地-01",
+            "部品コード": f"PART-{index:05d}",
+            "車両コード": f"VEH-{((index - 1) % 5) + 1:02d}",
             "品名": item_name,
             "ケース分類": case["分類"],
             "ケースNo": case["No"],
@@ -232,13 +272,18 @@ def generate_case_based_simulation_rows(case_master, row_count=200, assumptions=
             "W": case["W"],
             "H": case["H"],
             "体積m3": case["体積m3"],
-            "重量": weight,
+            "梱包前重量": unpacked_weight,
+            "梱包後重量": packed_weight,
             "仮定重量階級": density_class,
-            "積載可能日": creation_date.strftime("%Y-%m-%d"),
-            "納期": due_date.strftime("%Y-%m-%d"),
+            "出荷情報受領日": planning_dates["出荷情報受領日"].strftime("%Y-%m-%d"),
+            "レイアウト確定期限": planning_dates["レイアウト確定期限"].strftime("%Y-%m-%d"),
+            "納入予定日": creation_date.strftime("%Y-%m-%d"),
+            "バンニング開始日": vanning_start_date.strftime("%Y-%m-%d"),
+            "バンニング完了期限": vanning_end_date.strftime("%Y-%m-%d"),
+            "船積日": vessel_loading_date.strftime("%Y-%m-%d"),
             "木箱期限": expiration_date,
             "優先度": priority,
-            "仮定根拠": "寸法は開示ケースリスト準拠。重量・頻度・納期は暫定仮定。積み方は重量順で自動判定。",
+            "仮定根拠": "工程と管理項目は先方回答準拠。寸法は開示資料準拠。非開示の重量・頻度・納入日分布・各コード値は検証用の採用仮定。",
         })
     return rows
 
@@ -292,16 +337,21 @@ def build_case_class_summary_rows(case_master):
         })
     return rows
 
-def build_case_assumptions_rows(row_count=200):
+def build_case_assumptions_rows(row_count=800):
     return [
         {"項目": "ケース寸法", "扱い": "開示資料ベース", "内容": "いすゞロジスティック開示資料「ケースリスト」のL/W/Hをケースマスタとして使用"},
         {"項目": "ケース種類", "扱い": "開示資料ベース", "内容": "木箱10種類、スチール21種類を保持し、生成時は5つのケース階級へ分類"},
         {"項目": "ケース階級", "扱い": "モデル化", "内容": "小型スチール/中型スチール/大型スチール/標準木箱/大型木箱・特殊木箱"},
         {"項目": "運用規模", "扱い": "先方回答", "内容": f"週に50〜100本のバンニングレイアウトを行う規模感。今回の生成行数は{row_count}件"},
-        {"項目": "重量", "扱い": "仮定", "内容": "軽量・標準・重量物の密度レンジをケース体積に掛けて生成。先方回答が来たら差し替え対象"},
-        {"項目": "出現頻度", "扱い": "仮定", "内容": "ケース階級ごとの発生比率を暫定設定。実績頻度が分かり次第、置き換え可能"},
-        {"項目": "日別入荷量/納期分布", "扱い": "仮定", "内容": "30日ローリング検証用に、到着済み・近日到着・将来到着を混在させて生成"},
-        {"項目": "木箱期限", "扱い": "仮定", "内容": "木箱のみ、積載可能日から14/21/28日のいずれかで暫定付与し、納期より前には置かない"},
-        {"項目": "積み方", "扱い": "自動判定", "内容": "床置き・段積み可否・分離制約は入力項目にせず、重量が重い荷物から低い位置へ配置"},
+        {"項目": "計画工程", "扱い": "先方回答", "内容": "船積日の約3週間前に貨物情報を受領し、約2週間前に船・必要コンテナ量・レイアウトを確定"},
+        {"項目": "積込み期間", "扱い": "先方回答", "内容": "船積日の約1週間前から2日前までの間に毎日順次バンニングを実施"},
+        {"項目": "管理項目", "扱い": "先方回答", "内容": "出荷者名/受取者名/仕向け地/部品コード/車両コード/梱包前重量/梱包後重量/依頼コード/納入予定日を保持"},
+        {"項目": "非開示値の扱い", "扱い": "採用方針", "内容": "実値の追加開示を前提にせず、明示した検証用仮定を固定して結果を比較・説明する"},
+        {"項目": "管理項目の値", "扱い": "採用仮定", "内容": "出荷者名・仕向け地・各コード等の値は匿名の検証用サンプルを採用"},
+        {"項目": "重量", "扱い": "採用仮定", "内容": "実重量は非開示のため、梱包後重量は密度レンジから生成し、梱包前重量は梱包後重量の95%として採用"},
+        {"項目": "出現頻度", "扱い": "採用仮定", "内容": "実績頻度は非開示のため、週50〜100本規模の検証に使用するケース階級比率を採用"},
+        {"項目": "納入予定日分布", "扱い": "採用仮定", "内容": "納入予定日を管理することは先方回答済み。日ごとの発生分布と期限後納入率は検証用に採用"},
+        {"項目": "木箱期限", "扱い": "採用仮定", "内容": "期限ルールは非開示のため、木箱のみ納入予定日から14/21/28日のいずれかを採用し、積込期限より前には置かない"},
+        {"項目": "積み方", "扱い": "自動判定", "内容": "床置き・段積み可否・分離制約は入力項目にせず、大きい底面を土台にして上側が下側より重くならないよう配置"},
         {"項目": "赤字判定", "扱い": "業務ルール", "内容": "体積充填率80%未満を赤字候補として評価。重量充填率は安全制約として扱う"},
     ]

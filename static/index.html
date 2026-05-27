@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>いすゞ KDバンニングシミュレーター</title>
-    <meta name="description" content="コンテナ積載最適化シミュレーター。納期を守りながら充填率80%以上を実現する時間軸適応型バンニングレイアウト。">
+    <meta name="description" content="コンテナ積載最適化シミュレーター。積込期限を守りながら体積充填率80%以上を目標にするバンニングレイアウト。">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -47,23 +47,25 @@
             <!-- ====== Step 2: Conditions ====== -->
             <section id="step-2" class="step-panel">
                 <div class="glass-card">
-                    <h2>条件を設定</h2>
-                    <p class="subtitle">基準日と先読み日数を決めて、最適化を実行します</p>
+                    <h2>準備完了</h2>
+                    <p class="subtitle">読み込んだデータをもとに、最適化計算を実行します</p>
 
                     <div class="data-badge" id="data-badge">
                         📦 読込済み: <strong id="total-items">0</strong> 件
                     </div>
 
+                    <div id="planning-context" class="planning-context" style="display:none;"></div>
+
                     <div id="validation-bar" class="validation-bar" style="display:none;"></div>
 
-                    <div class="condition-row" style="margin-top:1.5rem;">
+                    <div class="condition-row" style="display:none; margin-top:1.5rem;">
                         <div class="field">
                             <label>基準日</label>
                             <input type="date" id="base-date" style="width:200px;">
                         </div>
                         <div class="field">
                             <label>何日先まで見るか</label>
-                            <input type="number" id="must-window" min="0" max="30" value="7" style="width:100px;">
+                            <input type="number" id="must-window" min="0" max="30" value="14" style="width:100px;">
                         </div>
                     </div>
 
@@ -94,12 +96,13 @@
                         <div class="kpi-delta" id="kpi-containers-delta"></div>
                     </div>
                     <div class="kpi-card" id="kpi-card-alerts">
-                        <div class="kpi-label">要確認</div>
+                        <div class="kpi-label">80%未満</div>
                         <div class="kpi-value" id="kpi-alerts">0</div>
                         <div class="kpi-unit">本</div>
+                        <div class="kpi-delta" id="kpi-alerts-delta"></div>
                     </div>
                     <div class="kpi-card" id="kpi-card-fillrate">
-                        <div class="kpi-label">平均積載率</div>
+                        <div class="kpi-label">平均体積充填率</div>
                         <div class="kpi-value" id="kpi-fillrate">0</div>
                         <div class="kpi-unit">%</div>
                         <div class="kpi-delta" id="kpi-fillrate-delta"></div>
@@ -118,25 +121,6 @@
                     <button class="btn-primary" id="btn-export" onclick="downloadExcel()">📋 指示書を出力 (Excel)</button>
                 </div>
 
-                <!-- Admin Section (hidden by default) -->
-                <div class="admin-link">
-                    <a href="#" id="admin-toggle" onclick="toggleAdmin(event)">管理者向け分析 ▸</a>
-                </div>
-                <div class="admin-panel" id="admin-panel">
-                    <h3>高度な分析</h3>
-                    <div class="condition-row" style="margin-bottom:1rem;">
-                        <div class="field">
-                            <label>ローリング日数</label>
-                            <input type="number" id="rolling-days" min="1" max="90" value="30" style="width:100px;">
-                        </div>
-                    </div>
-                    <div class="admin-btn-row">
-                        <button class="btn-ghost" id="btn-rolling">📊 ローリングシミュレーション</button>
-                        <button class="btn-ghost" id="btn-scenario">📈 シナリオ比較</button>
-                        <button class="btn-ghost" id="btn-export-rolling" style="display:none;" onclick="downloadRollingExcel()">📥 ローリング結果Excel</button>
-                    </div>
-                    <div id="admin-results" style="margin-top:1rem;"></div>
-                </div>
             </section>
         </main>
 

@@ -9,7 +9,8 @@ from services.validation import validate_items, build_validation_summary, build_
 from services.simulation import (
     read_generation_parameters, build_simulation_context,
     load_case_master_rows, generate_case_based_simulation_rows,
-    build_case_class_summary_rows, build_case_assumptions_rows
+    build_case_class_summary_rows, build_case_assumptions_rows,
+    build_planning_dates
 )
 from simulation_assumptions import build_generation_parameter_rows, load_simulation_assumptions
 from data_loader import DataLoader
@@ -98,9 +99,9 @@ def assumptions_api():
     })
 
 def download_template():
-    row_count = request.args.get("rows", default=200, type=int)
+    row_count = request.args.get("rows", default=800, type=int)
     if not row_count:
-        row_count = 200
+        row_count = 800
     row_count = max(50, min(row_count, 3000))
     seed = request.args.get("seed", default=20260516, type=int) or 20260516
     project_root = os.path.dirname(os.path.dirname(__file__))
@@ -108,11 +109,27 @@ def download_template():
     assumptions = load_simulation_assumptions(assumptions_path)
 
     case_master = load_case_master_rows()
-    simulation_rows = generate_case_based_simulation_rows(case_master, row_count=row_count, assumptions=assumptions, seed=seed)
+    planning_dates = build_planning_dates(assumptions)
+    simulation_rows = generate_case_based_simulation_rows(
+        case_master,
+        row_count=row_count,
+        assumptions=assumptions,
+        seed=seed,
+        planning_dates=planning_dates,
+    )
     df = pd.DataFrame(simulation_rows)
     case_df = pd.DataFrame(case_master)
     summary_df = pd.DataFrame(build_case_class_summary_rows(case_master))
-    parameters_df = pd.DataFrame(build_generation_parameter_rows(assumptions, row_count=row_count, seed=seed))
+    parameter_rows = build_generation_parameter_rows(assumptions, row_count=row_count, seed=seed)
+    for item, value in planning_dates.items():
+        parameter_rows.append({
+            "区分": "今回の計画日程",
+            "項目": item,
+            "値": value.strftime("%Y-%m-%d"),
+            "扱い": "先方回答ベース",
+            "説明": "船積日からの回答済みリードタイムに基づく日付",
+        })
+    parameters_df = pd.DataFrame(parameter_rows)
     assumptions_df = pd.DataFrame(build_case_assumptions_rows(row_count=row_count))
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:

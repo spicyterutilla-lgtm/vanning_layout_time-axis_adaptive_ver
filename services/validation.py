@@ -22,14 +22,14 @@ def validate_items(items):
         if item.weight <= 0:
             item_issues.append(("error", "重量が0以下です"))
         if item.due_date < item.creation_date:
-            item_issues.append(("error", "納期が積載可能日より前です"))
+            item_issues.append(("warning", "バンニング完了期限より後の納入予定です"))
         if item.expiration_date and item.expiration_date < item.creation_date:
-            item_issues.append(("error", "保管期限が積載可能日より前です"))
+            item_issues.append(("error", "木箱期限が納入予定日より前です"))
         if not can_fit_container(item, validation_container):
             item_issues.append(("error", "有効内寸または最大重量を超えており積載できません"))
 
         if item.expiration_date and item.expiration_date < item.due_date:
-            item_issues.append(("warning", "木箱期限が納期より前です"))
+            item_issues.append(("warning", "木箱期限が積込期限より前です"))
 
         for severity, message in item_issues:
             issues.append({
@@ -55,12 +55,13 @@ def build_data_readiness(input_profile, validation_issues):
     is_generated_simulation = bool((input_profile or {}).get("generated_simulation"))
     checks = [
         ("ケース寸法", True, "L/W/H/名称", "開示ケースマスタまたは入力Excelから取得"),
-        ("重量", detected.get("weight", False), "重量列", "未入力の場合は1000kg補完または生成仮定になり、実務検証では要確認"),
-        ("積載可能日", detected.get("creation", False), "積載可能日/到着日", "未入力の場合は当日扱いになり、時間軸評価が粗くなる"),
-        ("納期", detected.get("due", False), "納期", "未入力の場合は7日後扱いになり、出荷判断の根拠が弱くなる"),
-        ("木箱期限", detected.get("expiration", False), "木箱期限", "未入力の場合は木箱のみ21日補完または生成仮定"),
-        ("積み方ロジック", True, "自動判定", "重量が重い荷物を先に低い位置へ置く"),
-        ("前倒し候補", True, "自動判定", "現場にあり、期限に余裕がある荷物を補填候補にする"),
+        ("重量", detected.get("weight", False), "重量列", "生成データでは非開示値として明示した採用仮定を使用"),
+        ("管理項目", detected.get("managed_fields", False), "依頼コード/仕向け地/部品コード等", "先方回答で挙げられた項目を出力帳票まで追跡"),
+        ("納入予定日", detected.get("creation", False), "納入予定日/積載可能日/到着日", "未入力の場合は当日扱いになり、時間軸評価が粗くなる"),
+        ("バンニング完了期限", detected.get("due", False), "バンニング完了期限/納期", "未入力の場合は7日後扱いになり、出荷判断の根拠が弱くなる"),
+        ("木箱期限", detected.get("expiration", False), "木箱期限", "生成データでは非開示値として明示した採用仮定を使用"),
+        ("積み方ロジック", True, "自動判定", "大きい底面を土台にし、上側が下側より重くならないよう配置"),
+        ("追加積載候補", True, "自動判定", "納入済みで積込対象となる荷物から80%目標へ向けて配置"),
     ]
     rows = []
     ready_count = 0
@@ -78,14 +79,30 @@ def build_data_readiness(input_profile, validation_issues):
     score = round((ready_count / len(checks)) * 100, 1) if checks else 0
     if is_generated_simulation:
         score = min(score, 55.0)
+        generated_statuses = {
+            "ケース寸法": "開示資料ベース",
+            "重量": "採用仮定",
+            "管理項目": "項目は先方回答",
+            "納入予定日": "採用仮定",
+            "バンニング完了期限": "先方回答ベース",
+            "木箱期限": "採用仮定",
+            "積み方ロジック": "自動判定",
+            "追加積載候補": "自動判定",
+        }
+        for row in rows:
+            row["status"] = generated_statuses.get(row["item"], row["status"])
         rows.insert(0, {
             "item": "データ性質",
-            "status": "仮定シミュレーション",
+            "status": "採用仮定シミュレーション",
             "ready": False,
-            "source": "仮定根拠/仮定重量階級",
-            "note": "開示ケース寸法を根拠にした検証用データ。重量・頻度・納期・制約は先方回答で差し替え対象",
+            "source": "前提条件/仮定根拠/仮定重量階級",
+            "note": "工程日程・管理項目・運用規模は先方回答、寸法は開示資料を使用。非開示値は検証用の採用仮定として明示",
         })
-    risk_level = "実務検証向き" if score >= 80 else "要追加確認" if score >= 55 else "仮定検証向き"
+    risk_level = (
+        "前提明示型検証"
+        if is_generated_simulation
+        else "実務検証向き" if score >= 80 else "要追加確認" if score >= 55 else "仮定検証向き"
+    )
     return {
         "score": score,
         "risk_level": risk_level,
@@ -130,8 +147,12 @@ def validate_container_geometry(container):
         x1, y1, z1, x2, y2, z2 = item_bounds(item)
         if x1 < -0.001 or y1 < -0.001 or z1 < -0.001 or x2 > container.length + 0.001 or y2 > container.width + 0.001 or z2 > container.height + 0.001:
             warnings.append(f"{item.name}: コンテナ内寸外")
-        if z1 > 0.001 and not any(footprint_contains(other, item) for other in container.items if other is not item):
-            warnings.append(f"{item.name}: 底面支持なし")
+        if z1 > 0.001:
+            supports = [other for other in container.items if other is not item and footprint_contains(other, item)]
+            if not supports:
+                warnings.append(f"{item.name}: 底面支持なし")
+            elif item.weight > max(support.weight for support in supports):
+                warnings.append(f"{item.name}: 上載せ重量が下側より重い")
 
     for idx, item in enumerate(container.items):
         for other in container.items[idx + 1:]:
@@ -167,7 +188,7 @@ def classify_items_for_day(items, current_date, must_ship_window_days=7):
         if item.force_ship:
             must_reasons.append("手動強制")
         if item.due_date <= target_date_limit:
-            must_reasons.append("納期接近")
+            must_reasons.append("積込期限")
         if item.expiration_date and item.expiration_date <= target_date_limit:
             must_reasons.append("木箱期限接近")
 
@@ -191,4 +212,3 @@ def nearest_deadline(item):
     if item.expiration_date:
         candidates.append(item.expiration_date)
     return min(candidates)
-

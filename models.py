@@ -19,9 +19,17 @@ class Item:
     weight: float           # 重量 (kg)
     
     # --- 時間軸（4D）パラメータ ---
-    creation_date: datetime.date             # 梱包完了日（倉庫に入った日）
-    due_date: datetime.date                  # 納期（絶対に出荷しなければならない日）
+    creation_date: datetime.date             # 納入予定日（コンテナへ積載可能になる日）
+    due_date: datetime.date                  # バンニング完了期限（積込みを終える必要がある日）
     expiration_date: Optional[datetime.date] # 木箱などの寿命リミット（最大3週間 = 21日）
+    request_code: str = ""                   # 依頼コード
+    shipper: str = ""                        # 出荷者名
+    consignee: str = ""                      # 受取者名
+    destination: str = ""                    # 仕向け地
+    part_code: str = ""                      # 部品コード
+    vehicle_code: str = ""                   # 車両コード
+    unpacked_weight: Optional[float] = None  # 梱包前重量 (kg)
+    vessel_loading_date: Optional[datetime.date] = None  # 船積日
     priority: int = 50                       # 業務上の優先度（高いほど先に出す）
     allow_early_ship: bool = True            # 納期前の前倒し出荷を許可するか
     stackable: bool = True                    # 段積み可能か。Falseなら床置きかつ上載せ不可

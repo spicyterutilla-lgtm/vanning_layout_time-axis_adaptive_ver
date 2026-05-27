@@ -1,4 +1,7 @@
 import datetime
+import math
+from models import Container
+from vanning_engine import VOLUME_TARGET_RATE
 
 def read_bounded_int(data, key, default, min_value, max_value):
     try:
@@ -29,6 +32,49 @@ def summarize_containers(containers, target_volume_rate=80.0):
         "alert_containers": sum(1 for c in containers if c.fill_rate_volume < target_volume_rate),
         "avg_volume_rate": round(sum(c.fill_rate_volume for c in containers) / len(containers), 1),
         "avg_weight_rate": round(sum(c.fill_rate_weight for c in containers) / len(containers), 1),
+    }
+
+def build_efficiency_summary(containers, target_volume_rate=80.0):
+    """Return capacity lower bounds and achieved results for an explainable plan."""
+    if not containers:
+        return {
+            "container_count": 0,
+            "capacity_lower_bound": 0,
+            "container_gap_to_lower_bound": 0,
+            "volume_lower_bound": 0,
+            "weight_lower_bound": 0,
+            "alert_containers": 0,
+            "volume_only_minimum_alerts": 0,
+            "avg_volume_rate": 0,
+            "avg_weight_rate": 0,
+        }
+
+    reference = containers[0] if containers else Container(id="SUMMARY")
+    total_volume = sum(container.current_volume_m3 for container in containers)
+    total_weight = sum(container.current_weight for container in containers)
+    volume_lower_bound = math.ceil(total_volume / reference.max_volume_m3)
+    weight_lower_bound = math.ceil(total_weight / reference.max_weight)
+    capacity_lower_bound = max(volume_lower_bound, weight_lower_bound)
+    maximum_target_containers_by_volume = math.floor(
+        total_volume / (reference.max_volume_m3 * (target_volume_rate / 100))
+    )
+    actual_count = len(containers)
+    alert_count = sum(1 for c in containers if c.fill_rate_volume < target_volume_rate)
+
+    return {
+        "container_count": actual_count,
+        "capacity_lower_bound": capacity_lower_bound,
+        "container_gap_to_lower_bound": actual_count - capacity_lower_bound,
+        "volume_lower_bound": volume_lower_bound,
+        "weight_lower_bound": weight_lower_bound,
+        "alert_containers": alert_count,
+        "volume_only_minimum_alerts": max(0, actual_count - maximum_target_containers_by_volume),
+        "avg_volume_rate": round(sum(c.fill_rate_volume for c in containers) / actual_count, 1),
+        "avg_weight_rate": round(sum(c.fill_rate_weight for c in containers) / actual_count, 1),
+        "total_volume_m3": round(total_volume, 2),
+        "total_weight_kg": round(total_weight, 1),
+        "target_volume_rate": target_volume_rate,
+        "lower_bound_note": "容量と重量のみから計算した理論下限です。寸法による3D配置制約を含む最適本数の保証値ではありません。",
     }
 
 def output_container_sort_key(container):
@@ -121,9 +167,9 @@ def build_review_queue(pool_items, unused_forwardable, hold_items, future_items,
     entries = []
     sources = [
         (pool_items, "保留プール: 3D配置または充填率判断で今回未確定"),
-        (unused_forwardable, "未使用の前倒し候補: 今回の赤字補填には未採用"),
-        (hold_items, "前倒し不可: 納期または木箱期限まで待機"),
-        (future_items, "未到着: 積載可能日待ち"),
+        (unused_forwardable, "未使用の追加積載候補: 今回の80%未満対策には未採用"),
+        (hold_items, "追加積載対象外: 積込期限または木箱期限まで待機"),
+        (future_items, "未納入: 納入予定日待ち"),
     ]
 
     for items, reason in sources:
@@ -143,7 +189,7 @@ def build_remaining_risks(remaining_items, reference_date, limit=20):
         elif item.creation_date > reference_date:
             reason = "期間内に未到着"
         elif not item.allow_early_ship:
-            reason = "前倒し不可で待機"
+            reason = "追加積載対象外で待機"
         else:
             reason = "期間内で未出荷"
         entries.append(build_item_brief(item, reference_date, reason))
@@ -157,8 +203,8 @@ def build_container_alert_summary(container, current_date, must_ship_window_days
     if not is_alert:
         if pulled_count:
             return {
-                "title": "前倒し補填で80%クリア",
-                "detail": f"前倒し補填{pulled_count}件を採用し、体積充填率{container.fill_rate_volume:.1f}%まで改善しました。"
+                "title": "追加積載で80%クリア",
+                "detail": f"空きスペースへの追加積載{pulled_count}件により、体積充填率{container.fill_rate_volume:.1f}%となりました。"
             }
         return {"title": "", "detail": ""}
 
@@ -171,16 +217,16 @@ def build_container_alert_summary(container, current_date, must_ship_window_days
     if manual_count:
         reasons.append(f"手動指定{manual_count}件")
     if due_count:
-        reasons.append(f"納期{must_ship_window_days}日以内{due_count}件")
+        reasons.append(f"積込期限対象{due_count}件")
     if exp_count:
         reasons.append(f"木箱期限{must_ship_window_days}日以内{exp_count}件")
     if not reasons:
         reasons.append("期限優先の必須出荷")
 
     supplement = (
-        f"前倒し補填{pulled_count}件後も体積{container.fill_rate_volume:.1f}%です。"
+        f"追加積載{pulled_count}件後も体積{container.fill_rate_volume:.1f}%です。"
         if pulled_count
-        else "前倒し候補は3D配置・重量・実務制約により追加採用できませんでした。"
+        else "追加積載できる荷物は3D配置または重量上限により採用できませんでした。"
     )
     blocker_text = format_blocker_counts(blocker_counts or {})
     if blocker_text:
