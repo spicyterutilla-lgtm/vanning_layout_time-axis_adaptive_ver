@@ -1,4 +1,9 @@
 {
+  "assumption_profile": {
+    "name": "開示資料・回答ベース検証条件",
+    "version": "v1.0 / 2026-05-26",
+    "policy": "非開示の重量・頻度・納入日分布・木箱期限は、検証用の採用仮定として固定する"
+  },
   "class_weights": {
     "小型スチール": 0.18,
     "中型スチール": 0.34,
@@ -92,39 +97,37 @@
       ]
     ]
   },
+  "planning_timeline": {
+    "cargo_information_lead_days": 21,
+    "layout_confirmation_lead_days": 14,
+    "vanning_start_lead_days": 7,
+    "vanning_end_lead_days": 2
+  },
   "arrival_distribution": [
     {
-      "label": "到着済み",
+      "label": "積込み開始時に納入済み",
       "weight": 0.68,
       "offset_days": [
-        -21,
+        -7,
         0
       ]
     },
     {
-      "label": "近日到着",
+      "label": "積込み期間中に納入",
       "weight": 0.2,
       "offset_days": [
         1,
-        10
+        5
       ]
     },
     {
-      "label": "将来到着",
+      "label": "完了期限後に納入予定",
       "weight": 0.12,
       "offset_days": [
-        11,
-        28
+        6,
+        10
       ]
     }
-  ],
-  "due_offset_days": [
-    1,
-    42
-  ],
-  "due_after_arrival_days": [
-    3,
-    28
   ],
   "wood_expiration_days": [
     14,
