@@ -7,16 +7,33 @@ from packing_3d import Packer3D
 
 VOLUME_TARGET_RATE = 80.0
 WEIGHT_SOFT_LIMIT_RATE = 97.0
+LARGE_PLAN_ITEM_THRESHOLD = 300
+LOCAL_SEARCH_MAX_PASSES = 15
+LOCAL_RESCUE_TRIAL_LIMIT = 120
+LOCAL_BUNDLE_TRIAL_LIMIT = 80
+LOCAL_PAIR_REPACK_TRIAL_LIMIT = 500
+LARGE_PLAN_STRATEGY_LIMIT = 4
 
 class VanningEngine:
     """
     バンニング計算コアエンジン（第3フェーズ：3D配置・時間軸操作対応版）
     """
-    def __init__(self, strategy_mode: str = "full"):
+    def __init__(self, strategy_mode: str = "full", prioritize_open_containers: bool = True):
         # 各コンテナの3D空間状態を管理するパッカー
         self.packers: Dict[str, Packer3D] = {}
         self.last_packing_strategy = ""
         self.strategy_mode = strategy_mode
+        self.prioritize_open_containers = prioritize_open_containers
+        self.strategy_trials = []
+        self.deep_strategy_trials = []
+        self.alert_pool_strategy = ""
+        self.layout_improvement_stats = {
+            "consolidated_containers": 0,
+            "rescued_alert_containers": 0,
+            "bundled_rescue_containers": 0,
+            "pair_repacked_alert_containers": 0,
+            "pooled_repack_alert_containers": 0,
+        }
 
     def _nearest_deadline(self, item: Item) -> datetime.date:
         deadlines = [item.due_date]
@@ -98,8 +115,15 @@ class VanningEngine:
         overweight_near_limit = after_weight_rate >= WEIGHT_SOFT_LIMIT_RATE and after_volume_rate < VOLUME_TARGET_RATE
         weight_soft_penalty = max(0.0, after_weight_rate - WEIGHT_SOFT_LIMIT_RATE)
 
+        status_priority = (
+            (0 if clears_alert else 1 if before_is_alert else 2)
+            if self.prioritize_open_containers
+            else (0 if clears_alert else 1 if not after_is_alert else 2)
+        )
         return (
-            0 if clears_alert else 1 if not after_is_alert else 2,
+            # Open-container priority improves large single-vessel plans; medium plans
+            # may also evaluate the established packing preference as an alternative.
+            status_priority,
             max(0.0, VOLUME_TARGET_RATE - after_volume_rate),
             1 if overweight_near_limit else 0,
             weight_soft_penalty,
@@ -281,6 +305,50 @@ class VanningEngine:
             -item.priority,
         )
 
+    def _sort_key_large_plan(self, item: Item):
+        nearest_deadline = self._nearest_deadline(item)
+        return (
+            not item.force_ship,
+            -self._footprint_m2(item),
+            -item.volume_m3,
+            self._density(item),
+            -item.weight,
+            nearest_deadline,
+            -item.priority,
+        )
+
+    def _sort_key_volume_geometry(self, item: Item):
+        nearest_deadline = self._nearest_deadline(item)
+        return (
+            not item.force_ship,
+            -item.volume_m3,
+            -self._footprint_m2(item),
+            -item.weight,
+            self._density(item),
+            nearest_deadline,
+            -item.priority,
+        )
+
+    def _sort_key_height_geometry(self, item: Item):
+        nearest_deadline = self._nearest_deadline(item)
+        return (
+            not item.force_ship,
+            -self._footprint_m2(item),
+            -item.height,
+            -item.volume_m3,
+            -item.weight,
+            nearest_deadline,
+            -item.priority,
+        )
+
+    def _large_plan_strategies(self):
+        return [
+            ("floor_area_first", self._sort_key_large_plan),
+            ("volume_geometry_first", self._sort_key_volume_geometry),
+            ("height_geometry_first", self._sort_key_height_geometry),
+            ("weight_volume_first", self._sort_key_bulky_first),
+        ][:LARGE_PLAN_STRATEGY_LIMIT]
+
     def _packing_strategies(self):
         strategies = [
             ("volume_first", self._sort_key_volume_first),
@@ -319,6 +387,450 @@ class VanningEngine:
             -round(avg_volume, 4),
             round(max_weight_rate, 4),
         )
+
+    def _build_local_trial(self, containers: List[Container]):
+        """Create a fully repacked copy for a candidate local-search move."""
+        trial_engine = VanningEngine(
+            strategy_mode=self.strategy_mode,
+            prioritize_open_containers=True,
+        )
+        trial_containers = copy.deepcopy(containers)
+        for container in trial_containers:
+            if not trial_engine._rebuild_packer(container):
+                return None, None
+        return trial_engine, trial_containers
+
+    def _reset_placement(self, item: Item):
+        item.x = item.y = item.z = None
+        item.is_rotated = False
+
+    def _accept_local_candidate(self, containers: List[Container], trial_engine, candidate_containers: List[Container]):
+        containers[:] = candidate_containers
+        self.packers = trial_engine.packers
+
+    def _build_transfer_trial(self, containers: List[Container], source_id: str, target_id: str):
+        """Clone only the two containers changed by an item transfer."""
+        trial_engine = VanningEngine(
+            strategy_mode=self.strategy_mode,
+            prioritize_open_containers=True,
+        )
+        source = copy.deepcopy(next(container for container in containers if container.id == source_id))
+        target = copy.deepcopy(next(container for container in containers if container.id == target_id))
+        if not trial_engine._rebuild_packer(source) or not trial_engine._rebuild_packer(target):
+            return None, None, None, None
+        trial_containers = [
+            source if container.id == source_id else target if container.id == target_id else container
+            for container in containers
+        ]
+        return trial_engine, trial_containers, source, target
+
+    def _accept_transfer_candidate(self, containers: List[Container], trial_engine, candidate_containers: List[Container], removed_source_id=None):
+        merged_packers = dict(self.packers)
+        merged_packers.update(trial_engine.packers)
+        if removed_source_id:
+            merged_packers.pop(removed_source_id, None)
+        containers[:] = candidate_containers
+        self.packers = merged_packers
+
+    def _try_consolidate_low_fill_container(self, containers: List[Container]) -> bool:
+        """Remove an underfilled container when every item can be reassigned safely."""
+        baseline_score = self._packing_result_score(containers, [])
+        low_fill_sources = sorted(
+            [container for container in containers if container.fill_rate_volume < VOLUME_TARGET_RATE],
+            key=lambda container: (container.fill_rate_volume, len(container.items), container.id),
+        )
+
+        for original_source in low_fill_sources:
+            trial_engine, trial_containers = self._build_local_trial(containers)
+            if not trial_engine:
+                continue
+
+            source = next(container for container in trial_containers if container.id == original_source.id)
+            destinations = [container for container in trial_containers if container.id != source.id]
+            movable_items = sorted(list(source.items), key=self._sort_key_large_plan)
+
+            completed = True
+            for item in movable_items:
+                source.items.remove(item)
+                self._reset_placement(item)
+                target = trial_engine._select_best_container(destinations, item)
+                if target is None or not trial_engine._can_pack(target, item):
+                    completed = False
+                    break
+                target.items.append(item)
+                if not item.status_msg:
+                    item.decision_reason = "低充填コンテナの統合により、既存コンテナへ再配置"
+
+            if not completed:
+                continue
+
+            trial_engine.packers.pop(source.id, None)
+            candidate_score = self._packing_result_score(destinations, [])
+            if candidate_score < baseline_score:
+                self._accept_local_candidate(containers, trial_engine, destinations)
+                self.layout_improvement_stats["consolidated_containers"] += 1
+                return True
+
+        return False
+
+    def _rescue_transfer_options(self, containers: List[Container]):
+        options = []
+        low_fill_targets = sorted(
+            [container for container in containers if container.fill_rate_volume < VOLUME_TARGET_RATE],
+            key=lambda container: (-container.fill_rate_volume, container.id),
+        )
+        for target in low_fill_targets:
+            for source in containers:
+                if source is target:
+                    continue
+                for item in source.items:
+                    after_target_rate = (
+                        (target.current_volume_m3 + item.volume_m3) / target.max_volume_m3
+                    ) * 100
+                    if after_target_rate < VOLUME_TARGET_RATE:
+                        continue
+                    if target.current_weight + item.weight > target.max_weight:
+                        continue
+
+                    source_item_count = len(source.items) - 1
+                    after_source_rate = (
+                        ((source.current_volume_m3 - item.volume_m3) / source.max_volume_m3) * 100
+                        if source_item_count
+                        else 0
+                    )
+                    before_alerts = int(target.fill_rate_volume < VOLUME_TARGET_RATE) + int(
+                        source.fill_rate_volume < VOLUME_TARGET_RATE
+                    )
+                    after_alerts = int(after_target_rate < VOLUME_TARGET_RATE)
+                    if source_item_count:
+                        after_alerts += int(after_source_rate < VOLUME_TARGET_RATE)
+                    if after_alerts >= before_alerts:
+                        continue
+
+                    options.append((
+                        after_alerts,
+                        max(0.0, after_target_rate - VOLUME_TARGET_RATE),
+                        0 if not source_item_count else 1,
+                        -target.fill_rate_volume,
+                        source.id,
+                        target.id,
+                        item.id,
+                    ))
+        return sorted(options)
+
+    def _try_rescue_low_fill_container(self, containers: List[Container]) -> bool:
+        """Move one item only when it strictly reduces the alert-container score."""
+        baseline_score = self._packing_result_score(containers, [])
+        for _, _, _, _, source_id, target_id, item_id in self._rescue_transfer_options(containers)[:LOCAL_RESCUE_TRIAL_LIMIT]:
+            trial_engine, trial_containers, source, target = self._build_transfer_trial(
+                containers,
+                source_id,
+                target_id,
+            )
+            if not trial_engine:
+                continue
+
+            item = next(item for item in source.items if item.id == item_id)
+            source.items.remove(item)
+            self._reset_placement(item)
+
+            removed_source_id = None
+            if source.items:
+                if not trial_engine._rebuild_packer(source):
+                    continue
+            else:
+                trial_containers.remove(source)
+                trial_engine.packers.pop(source.id, None)
+                removed_source_id = source.id
+
+            if not trial_engine._can_pack(target, item):
+                continue
+            target.items.append(item)
+            if not item.status_msg:
+                item.decision_reason = "低充填コンテナを80%以上にするため、既存コンテナ間で再配置"
+
+            candidate_score = self._packing_result_score(trial_containers, [])
+            if candidate_score < baseline_score:
+                self._accept_transfer_candidate(
+                    containers,
+                    trial_engine,
+                    trial_containers,
+                    removed_source_id=removed_source_id,
+                )
+                self.layout_improvement_stats["rescued_alert_containers"] += 1
+                return True
+        return False
+
+    def _bundle_transfer_options(self, containers: List[Container]):
+        options = []
+        low_fill_targets = sorted(
+            [container for container in containers if container.fill_rate_volume < VOLUME_TARGET_RATE],
+            key=lambda container: (-container.fill_rate_volume, container.id),
+        )
+        for target in low_fill_targets:
+            for source in containers:
+                if source is target or len(source.items) < 2:
+                    continue
+                for first_index, first in enumerate(source.items[:-1]):
+                    for second in source.items[first_index + 1:]:
+                        added_volume = first.volume_m3 + second.volume_m3
+                        after_target_rate = (
+                            (target.current_volume_m3 + added_volume) / target.max_volume_m3
+                        ) * 100
+                        if after_target_rate < VOLUME_TARGET_RATE:
+                            continue
+                        if target.current_weight + first.weight + second.weight > target.max_weight:
+                            continue
+
+                        source_item_count = len(source.items) - 2
+                        after_source_rate = (
+                            ((source.current_volume_m3 - added_volume) / source.max_volume_m3) * 100
+                            if source_item_count
+                            else 0
+                        )
+                        before_alerts = int(target.fill_rate_volume < VOLUME_TARGET_RATE) + int(
+                            source.fill_rate_volume < VOLUME_TARGET_RATE
+                        )
+                        after_alerts = int(after_target_rate < VOLUME_TARGET_RATE)
+                        if source_item_count:
+                            after_alerts += int(after_source_rate < VOLUME_TARGET_RATE)
+                        if after_alerts >= before_alerts:
+                            continue
+
+                        options.append((
+                            after_alerts,
+                            max(0.0, after_target_rate - VOLUME_TARGET_RATE),
+                            0 if not source_item_count else 1,
+                            -target.fill_rate_volume,
+                            source.id,
+                            target.id,
+                            first.id,
+                            second.id,
+                        ))
+        return sorted(options)
+
+    def _try_rescue_low_fill_bundle(self, containers: List[Container]) -> bool:
+        """Move two items together when a single-item rescue cannot reach 80%."""
+        baseline_score = self._packing_result_score(containers, [])
+        options = self._bundle_transfer_options(containers)[:LOCAL_BUNDLE_TRIAL_LIMIT]
+        for _, _, _, _, source_id, target_id, first_id, second_id in options:
+            trial_engine, trial_containers, source, target = self._build_transfer_trial(
+                containers,
+                source_id,
+                target_id,
+            )
+            if not trial_engine:
+                continue
+
+            moved_items = [
+                next(item for item in source.items if item.id == item_id)
+                for item_id in (first_id, second_id)
+            ]
+            for item in moved_items:
+                source.items.remove(item)
+
+            removed_source_id = None
+            if source.items:
+                if not trial_engine._rebuild_packer(source):
+                    continue
+            else:
+                trial_containers.remove(source)
+                trial_engine.packers.pop(source.id, None)
+                removed_source_id = source.id
+
+            completed = True
+            for item in sorted(moved_items, key=self._sort_key_large_plan):
+                self._reset_placement(item)
+                if not trial_engine._can_pack(target, item):
+                    completed = False
+                    break
+                target.items.append(item)
+                if not item.status_msg:
+                    item.decision_reason = "低充填コンテナを80%以上にするため、荷物をまとめて再配置"
+            if not completed:
+                continue
+
+            candidate_score = self._packing_result_score(trial_containers, [])
+            if candidate_score < baseline_score:
+                self._accept_transfer_candidate(
+                    containers,
+                    trial_engine,
+                    trial_containers,
+                    removed_source_id=removed_source_id,
+                )
+                self.layout_improvement_stats["bundled_rescue_containers"] += 1
+                return True
+        return False
+
+    def _try_repack_low_fill_pair(self, containers: List[Container]) -> bool:
+        """Repack two alert containers from scratch when rearrangement rescues one."""
+        baseline_alerts = sum(
+            container.fill_rate_volume < VOLUME_TARGET_RATE for container in containers
+        )
+        alert_containers = [
+            container for container in containers
+            if container.fill_rate_volume < VOLUME_TARGET_RATE
+        ]
+        pair_candidates = []
+        for first_index, first in enumerate(alert_containers[:-1]):
+            for second in alert_containers[first_index + 1:]:
+                pair_candidates.append((
+                    -(first.fill_rate_volume + second.fill_rate_volume),
+                    first.id,
+                    second.id,
+                ))
+
+        strategies = [self._sort_key_bulky_first, self._sort_key_large_plan]
+        for _, first_id, second_id in sorted(pair_candidates)[:LOCAL_PAIR_REPACK_TRIAL_LIMIT]:
+            original_pair = [
+                next(container for container in containers if container.id == first_id),
+                next(container for container in containers if container.id == second_id),
+            ]
+            items = original_pair[0].items + original_pair[1].items
+
+            for sort_key in strategies:
+                trial_engine = VanningEngine(
+                    strategy_mode=self.strategy_mode,
+                    prioritize_open_containers=True,
+                )
+                repacked, unpacked = trial_engine._run_basic_packing_once(
+                    copy.deepcopy(items),
+                    sort_key,
+                    apply_local_search=False,
+                )
+                if unpacked or len(repacked) > 2:
+                    continue
+
+                candidate_containers = [
+                    container
+                    for container in containers
+                    if container.id not in (first_id, second_id)
+                ] + repacked
+                candidate_alerts = sum(
+                    container.fill_rate_volume < VOLUME_TARGET_RATE
+                    for container in candidate_containers
+                )
+                if candidate_alerts >= baseline_alerts:
+                    continue
+
+                remapped_packers = dict(self.packers)
+                remapped_packers.pop(first_id, None)
+                remapped_packers.pop(second_id, None)
+                original_ids = [first_id, second_id]
+                for index, container in enumerate(repacked):
+                    trial_id = container.id
+                    container.id = original_ids[index]
+                    packer = trial_engine.packers[trial_id]
+                    packer.container = container
+                    remapped_packers[container.id] = packer
+                    for item in container.items:
+                        if not item.status_msg:
+                            item.decision_reason = "低充填コンテナ2本を組み直し、体積80%未満の本数を削減"
+
+                containers[:] = [
+                    container
+                    for container in containers
+                    if container.id not in (first_id, second_id)
+                ] + repacked
+                self.packers = remapped_packers
+                self.layout_improvement_stats["pair_repacked_alert_containers"] += (
+                    baseline_alerts - candidate_alerts
+                )
+                return True
+
+        return False
+
+    def _try_repack_alert_pool(self, containers: List[Container]) -> bool:
+        """Rebuild all alert containers using the best bounded geometry-first trial."""
+        alert_containers = [
+            container for container in containers
+            if container.fill_rate_volume < VOLUME_TARGET_RATE
+        ]
+        if len(alert_containers) < 2:
+            return False
+
+        baseline_score = self._packing_result_score(containers, [])
+        original_ids = [container.id for container in alert_containers]
+        alert_items = sum((container.items for container in alert_containers), [])
+
+        best_trial = None
+        pool_strategies = [
+            ("floor_area_first", self._sort_key_large_plan),
+            ("volume_geometry_first", self._sort_key_volume_geometry),
+            ("height_geometry_first", self._sort_key_height_geometry),
+            ("weight_volume_first", self._sort_key_bulky_first),
+        ]
+        for name, sort_key in pool_strategies:
+            trial_engine = VanningEngine(
+                strategy_mode=self.strategy_mode,
+                prioritize_open_containers=True,
+            )
+            repacked, unpacked = trial_engine._run_basic_packing_once(
+                copy.deepcopy(alert_items),
+                sort_key,
+                apply_local_search=False,
+            )
+            if unpacked or len(repacked) > len(alert_containers):
+                continue
+            trial_score = self._packing_result_score(repacked, [])
+            if best_trial is None or trial_score < best_trial[0]:
+                best_trial = (trial_score, name, trial_engine, repacked)
+
+        if best_trial is None:
+            return False
+
+        _, selected_name, trial_engine, repacked = best_trial
+        trial_engine._improve_low_fill_layout(repacked, allow_pool_repack=False)
+        candidate_containers = [
+            container
+            for container in containers
+            if container.id not in original_ids
+        ] + repacked
+        candidate_score = self._packing_result_score(candidate_containers, [])
+        if candidate_score >= baseline_score:
+            return False
+
+        self.alert_pool_strategy = selected_name
+        remapped_packers = {
+            container_id: packer
+            for container_id, packer in self.packers.items()
+            if container_id not in original_ids
+        }
+        for index, container in enumerate(repacked):
+            trial_id = container.id
+            container.id = original_ids[index]
+            packer = trial_engine.packers[trial_id]
+            packer.container = container
+            remapped_packers[container.id] = packer
+            for item in container.items:
+                if not item.status_msg:
+                    item.decision_reason = "低充填コンテナ群をまとめて組み直し、体積80%未満を削減"
+
+        containers[:] = [
+            container
+            for container in containers
+            if container.id not in original_ids
+        ] + repacked
+        self.packers = remapped_packers
+        self.layout_improvement_stats["pooled_repack_alert_containers"] += (
+            baseline_score[1] - candidate_score[1]
+        )
+        return True
+
+    def _improve_low_fill_layout(self, containers: List[Container], allow_pool_repack: bool = True):
+        """Apply bounded local search without changing physical or weight constraints."""
+        for _ in range(LOCAL_SEARCH_MAX_PASSES):
+            if self._try_consolidate_low_fill_container(containers):
+                continue
+            if self._try_rescue_low_fill_container(containers):
+                continue
+            if self._try_repack_low_fill_pair(containers):
+                continue
+            if self._try_rescue_low_fill_bundle(containers):
+                continue
+            break
+        if allow_pool_repack and self._try_repack_alert_pool(containers):
+            self._improve_low_fill_layout(containers, allow_pool_repack=False)
 
     def _would_create_new_volume_alert(self, container: Container, item: Item) -> bool:
         if container.fill_rate_volume < VOLUME_TARGET_RATE:
@@ -401,7 +913,7 @@ class VanningEngine:
 
         containers[:] = [container for container in containers if container.items]
 
-    def _run_basic_packing_once(self, items: List[Item], sort_key=None) -> Tuple[List[Container], List[Item]]:
+    def _run_basic_packing_once(self, items: List[Item], sort_key=None, apply_local_search: bool = True) -> Tuple[List[Container], List[Item]]:
         """基本パッキングロジック（単一期間）"""
         containers: List[Container] = []
         unpacked_items: List[Item] = []
@@ -454,10 +966,16 @@ class VanningEngine:
                     unpacked_items.append(item)
                     
         self._rebalance_soft_weight(containers)
+        if apply_local_search:
+            self._improve_low_fill_layout(containers)
         return containers, unpacked_items
 
     def run_basic_packing(self, items: List[Item]) -> Tuple[List[Container], List[Item]]:
-        strategies = self._packing_strategies()
+        strategies = (
+            self._large_plan_strategies()
+            if len(items) >= LARGE_PLAN_ITEM_THRESHOLD
+            else self._packing_strategies()
+        )
         if len(items) <= 1:
             self.last_packing_strategy = strategies[0][0]
             return self._run_basic_packing_once(items, strategies[0][1])
@@ -467,14 +985,82 @@ class VanningEngine:
         best_score = None
 
         for name, sort_key in strategies:
-            trial_engine = VanningEngine(strategy_mode=self.strategy_mode)
+            trial_engine = VanningEngine(
+                strategy_mode=self.strategy_mode,
+                # Use the 80%-rescue preference to choose the ordering; the
+                # alternative policy changes the final initial placement only.
+                prioritize_open_containers=True,
+            )
             trial_items = copy.deepcopy(items)
-            trial_containers, trial_unpacked = trial_engine._run_basic_packing_once(trial_items, sort_key)
+            trial_containers, trial_unpacked = trial_engine._run_basic_packing_once(
+                trial_items,
+                sort_key,
+                apply_local_search=False,
+            )
             trial_score = self._packing_result_score(trial_containers, trial_unpacked)
+            self.strategy_trials.append({
+                "name": name,
+                "container_count": len(trial_containers),
+                "alert_containers": sum(
+                    1 for container in trial_containers
+                    if container.fill_rate_volume < VOLUME_TARGET_RATE
+                ),
+                "avg_volume_rate": round(
+                    sum(container.fill_rate_volume for container in trial_containers) / len(trial_containers),
+                    1,
+                ) if trial_containers else 0,
+            })
             if best_score is None or trial_score < best_score:
                 best_name = name
                 best_sort_key = sort_key
                 best_score = trial_score
+
+        if len(items) >= LARGE_PLAN_ITEM_THRESHOLD:
+            deep_strategies = [(best_name, best_sort_key)]
+            incumbent_name = "weight_volume_first"
+            incumbent_key = self._sort_key_bulky_first
+            if best_name != incumbent_name:
+                deep_strategies.append((incumbent_name, incumbent_key))
+
+            selected_result = None
+            for name, sort_key in deep_strategies:
+                deep_engine = VanningEngine(
+                    strategy_mode=self.strategy_mode,
+                    prioritize_open_containers=self.prioritize_open_containers,
+                )
+                deep_containers, deep_unpacked = deep_engine._run_basic_packing_once(
+                    copy.deepcopy(items),
+                    sort_key,
+                    apply_local_search=True,
+                )
+                deep_score = self._packing_result_score(deep_containers, deep_unpacked)
+                self.deep_strategy_trials.append({
+                    "name": name,
+                    "container_count": len(deep_containers),
+                    "alert_containers": sum(
+                        1 for container in deep_containers
+                        if container.fill_rate_volume < VOLUME_TARGET_RATE
+                    ),
+                    "avg_volume_rate": round(
+                        sum(container.fill_rate_volume for container in deep_containers) / len(deep_containers),
+                        1,
+                    ) if deep_containers else 0,
+                })
+                if selected_result is None or deep_score < selected_result[0]:
+                    selected_result = (
+                        deep_score,
+                        name,
+                        deep_engine,
+                        deep_containers,
+                        deep_unpacked,
+                    )
+
+            _, selected_name, selected_engine, selected_containers, selected_unpacked = selected_result
+            self.last_packing_strategy = selected_name
+            self.packers = selected_engine.packers
+            self.layout_improvement_stats = selected_engine.layout_improvement_stats
+            self.alert_pool_strategy = selected_engine.alert_pool_strategy
+            return selected_containers, selected_unpacked
 
         self.last_packing_strategy = best_name
         return self._run_basic_packing_once(items, best_sort_key)
@@ -490,6 +1076,7 @@ class VanningEngine:
         final_containers = []
         next_pool = unpacked.copy() # 基本ロジックで溢れたものは無条件でプールへ
         remaining_forwardable = forwardable_items.copy()
+        pulled_any = False
 
         # 2. 各コンテナの充填率を評価し、時間軸操作（Pull/Push）を試みる
         for container in containers:
@@ -511,6 +1098,7 @@ class VanningEngine:
                         if self._can_pack(container, f_item):
                             container.items.append(f_item)
                             pulled_items.append(f_item)
+                            pulled_any = True
                             remaining_forwardable.remove(f_item)
                             f_item.status_msg = f"前倒し補填（元納期: {f_item.due_date.strftime('%m/%d')}）"
                             f_item.decision_reason = self._forwardable_note(
@@ -581,6 +1169,7 @@ class VanningEngine:
                             metrics = self._forwardable_metrics(container, f_item, current_date)
                             if self._can_pack(container, f_item):
                                 container.items.append(f_item)
+                                pulled_any = True
                                 remaining_forwardable.remove(f_item)
                                 f_item.status_msg = f"前倒し補填（元納期: {f_item.due_date.strftime('%m/%d')}）"
                                 f_item.decision_reason = (
@@ -613,6 +1202,8 @@ class VanningEngine:
             final_containers.append(container)
 
         self._rebalance_soft_weight(final_containers)
+        if pulled_any:
+            self._improve_low_fill_layout(final_containers)
 
         for item in remaining_forwardable:
             if not item.decision_reason:
