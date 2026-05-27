@@ -12,7 +12,7 @@ SIMULATION_ASSUMPTIONS_FILE = "simulation_assumptions.json"
 CASE_MASTER_CACHE = {"path": None, "mtime": None, "rows": None}
 
 def clear_last_results():
-    for key in ("last_containers", "last_rolling", "last_review_queue", "last_scenarios"):
+    for key in ("last_containers", "last_rolling", "last_review_queue", "last_scenarios", "last_optimization_summary"):
         SESSION_DATA.pop(key, None)
 
 def reset_runtime_state(items):
