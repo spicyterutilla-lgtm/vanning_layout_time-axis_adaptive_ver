@@ -5,6 +5,8 @@ import pandas as pd
 from flask import request, jsonify, send_file
 from services.session import SESSION_DATA
 from services.utils import build_container_alert_summary, build_item_brief
+from services.validation import build_data_readiness
+from vanning_engine import VOLUME_TARGET_RATE
 
 def export_rolling_excel():
     rolling = SESSION_DATA.get("last_rolling")
@@ -315,8 +317,8 @@ def export_excel():
     summary_ws['A1'] = "【納品順サマリー】 コンテナ別出荷判断一覧"
     summary_ws['A1'].font = Font(size=14, bold=True)
     summary_headers = [
-        "納品順", "計画ID", "最短納期", "木箱期限", "体積充填率", "重量充填率",
-        "荷物数", "前倒し補填", "出荷判断"
+        "納品順", "計画ID", "最短積込期限", "木箱期限", "体積充填率", "重量充填率",
+        "荷物数", "空き埋め荷物", "出荷判断"
     ]
     for col_idx, header in enumerate(summary_headers, 1):
         cell = summary_ws.cell(row=3, column=col_idx)
@@ -363,6 +365,51 @@ def export_excel():
     for col_idx, width in enumerate(summary_widths, 1):
         summary_ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
 
+    optimization_summary = SESSION_DATA.get("last_optimization_summary")
+    if optimization_summary:
+        evaluation_ws = wb.create_sheet(title="最適化評価")
+        evaluation_ws.merge_cells('A1:C1')
+        evaluation_ws['A1'] = "【最適化評価】 算出結果と容量・重量下限"
+        evaluation_ws['A1'].font = Font(size=14, bold=True)
+        evaluation_rows = [
+            ("確定コンテナ本数", optimization_summary.get("container_count", ""), "本"),
+            ("容量・重量による理論下限", optimization_summary.get("capacity_lower_bound", ""), "本"),
+            ("理論下限との差", optimization_summary.get("container_gap_to_lower_bound", ""), "本"),
+            ("体積のみの下限", optimization_summary.get("volume_lower_bound", ""), "本"),
+            ("重量のみの下限", optimization_summary.get("weight_lower_bound", ""), "本"),
+            ("80%未満コンテナ", optimization_summary.get("alert_containers", ""), "本"),
+            ("体積総量上避けられない80%未満", optimization_summary.get("volume_only_minimum_alerts", ""), "本"),
+            ("平均体積充填率", optimization_summary.get("avg_volume_rate", ""), "%"),
+            ("平均重量充填率", optimization_summary.get("avg_weight_rate", ""), "%"),
+            ("比較した初期配置候補", optimization_summary.get("strategy_trial_count", ""), "案"),
+            ("最終再配置まで比較した候補", optimization_summary.get("deep_strategy_trial_count", ""), "案"),
+            ("採用した配置方針", optimization_summary.get("selected_strategy", ""), ""),
+            ("3D配置チェック", "適合" if optimization_summary.get("geometry_valid") else "要確認", ""),
+            ("3D配置警告", optimization_summary.get("geometry_warning_count", 0), "件"),
+        ]
+        for row_idx, (label, value, unit) in enumerate(evaluation_rows, 3):
+            evaluation_ws.cell(row=row_idx, column=1).value = label
+            evaluation_ws.cell(row=row_idx, column=2).value = value
+            evaluation_ws.cell(row=row_idx, column=3).value = unit
+            for col_idx in range(1, 4):
+                cell = evaluation_ws.cell(row=row_idx, column=col_idx)
+                cell.border = border_thin
+                if col_idx == 1:
+                    cell.fill = header_fill
+                    cell.font = header_font
+        note_row = len(evaluation_rows) + 5
+        evaluation_ws.cell(row=note_row, column=1).value = "注記"
+        evaluation_ws.cell(row=note_row, column=1).fill = header_fill
+        evaluation_ws.cell(row=note_row, column=1).font = header_font
+        evaluation_ws.cell(row=note_row, column=1).border = border_thin
+        evaluation_ws.merge_cells(start_row=note_row, start_column=2, end_row=note_row, end_column=3)
+        evaluation_ws.cell(row=note_row, column=2).value = optimization_summary.get("lower_bound_note", "")
+        evaluation_ws.cell(row=note_row, column=2).alignment = Alignment(wrap_text=True, vertical="top")
+        evaluation_ws.cell(row=note_row, column=2).border = border_thin
+        evaluation_ws.column_dimensions["A"].width = 34
+        evaluation_ws.column_dimensions["B"].width = 70
+        evaluation_ws.column_dimensions["C"].width = 10
+
     simulation_context = SESSION_DATA.get("simulation_context")
     if simulation_context:
         def pct(value):
@@ -378,13 +425,20 @@ def export_excel():
 
         context_rows = [
             ("データ種別", "開示ケースリスト準拠の検証データ" if simulation_context.get("is_generated") else "読み込みExcelデータ"),
+            ("前提プロファイル", simulation_context.get("assumption_profile_name", "")),
+            ("前提バージョン", simulation_context.get("assumption_profile_version", "")),
+            ("非開示値の扱い", simulation_context.get("assumption_policy", "")),
             ("読み込み荷物数", simulation_context.get("loaded_count", "")),
             ("生成時の荷物数", simulation_context.get("generated_rows_setting", "")),
             ("再現用番号", simulation_context.get("seed", "")),
+            ("出荷情報受領日", simulation_context.get("cargo_information_date", "")),
+            ("レイアウト確定期限", simulation_context.get("layout_confirmation_date", "")),
+            ("バンニング期間", f"{simulation_context.get('vanning_start_date', '')} 〜 {simulation_context.get('vanning_end_date', '')}"),
+            ("船積日", simulation_context.get("vessel_loading_date", "")),
             ("積み方", simulation_context.get("placement_policy", "")),
             ("木箱期限あり", pct(simulation_context.get("wood_deadline_rate"))),
-            ("到着状況", f"到着済み {pct(simulation_context.get('arrived_rate'))} / 未到着 {pct(simulation_context.get('future_rate'))}"),
-            ("納期範囲", f"{simulation_context.get('due_min', '')} 〜 {simulation_context.get('due_max', '')}"),
+            ("納入状況", f"{simulation_context.get('availability_reference_label', '')}: 納入予定済み {pct(simulation_context.get('arrived_rate'))} / 期限後予定 {pct(simulation_context.get('future_rate'))}"),
+            ("バンニング完了期限範囲", f"{simulation_context.get('due_min', '')} 〜 {simulation_context.get('due_max', '')}"),
             ("平均重量", simulation_context.get("avg_weight", "")),
         ]
         for row_idx, (label, value) in enumerate(context_rows, 4):
@@ -399,7 +453,7 @@ def export_excel():
                 else:
                     cell.alignment = Alignment(wrap_text=True, vertical="top")
 
-        source_start = 18
+        source_start = 25
         source_headers = ["項目", "扱い", "根拠", "備考"]
         for col_idx, header in enumerate(source_headers, 1):
             cell = context_ws.cell(row=source_start, column=col_idx)
@@ -414,7 +468,7 @@ def export_excel():
                 cell = context_ws.cell(row=row_idx, column=col_idx)
                 cell.value = value
                 cell.border = border_thin
-                if row.get("status") in {"仮定", "補完"} and col_idx == 2:
+                if row.get("status") in {"仮定", "採用仮定", "補完"} and col_idx == 2:
                     cell.font = Font(color="B45309", bold=True)
                 if col_idx == 4:
                     cell.alignment = Alignment(wrap_text=True, vertical="top")
@@ -426,7 +480,7 @@ def export_excel():
     readiness_ws.merge_cells('A1:E1')
     readiness_ws['A1'] = f"【実務準備度】 {readiness['score']}% / {readiness['risk_level']}"
     readiness_ws['A1'].font = Font(size=14, bold=True)
-    readiness_headers = ["項目", "状態", "確認列", "備考", "実データ"]
+    readiness_headers = ["項目", "根拠区分", "確認列", "備考", "入力列"]
     for col_idx, header in enumerate(readiness_headers, 1):
         cell = readiness_ws.cell(row=3, column=col_idx)
         cell.value = header
@@ -440,6 +494,8 @@ def export_excel():
             cell = readiness_ws.cell(row=row_idx, column=col_idx)
             cell.value = value
             cell.border = border_thin
+            if row["status"] == "採用仮定" and col_idx == 2:
+                cell.font = Font(color="B45309", bold=True)
             if not row["ready"] and col_idx in {2, 5}:
                 cell.font = Font(color="FF0000", bold=True)
             if col_idx == 4:
@@ -457,7 +513,7 @@ def export_excel():
         )
         
         # コンテナサマリー部分
-        ws.merge_cells('A1:I1')
+        ws.merge_cells('A1:M1')
         ws['A1'] = f"【バンニング指示書】 コンテナ: {c.id}"
         ws['A1'].font = Font(size=14, bold=True)
         
@@ -471,7 +527,7 @@ def export_excel():
         ws['B6'] = f"{round(c.fill_rate_volume, 1)}%"
         ws['A7'] = "出荷判断"
         ws['B7'] = alert_text
-        ws.merge_cells('B7:I7')
+        ws.merge_cells('B7:M7')
         
         for r in range(3, 8):
             ws[f'A{r}'].fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
@@ -482,7 +538,11 @@ def export_excel():
             ws['B7'].font = Font(color="FF0000", bold=True)
         
         # 荷物リストのヘッダー
-        headers = ["積込順", "品名", "重量(kg)", "寸法 L×W×H(mm)", "3D配置 (奥×横×高)", "実務制約", "分類理由", "判断根拠", "特記事項・ステータス"]
+        headers = [
+            "積込順", "依頼コード", "部品コード", "車両コード", "仕向け地", "品名",
+            "梱包前重量(kg)", "梱包後重量(kg)", "寸法 L×W×H(mm)",
+            "3D配置 (奥×横×高)", "分類理由", "判断根拠", "特記事項・ステータス"
+        ]
         start_row = 10
         for col_idx, h in enumerate(headers, 1):
             cell = ws.cell(row=start_row, column=col_idx)
@@ -505,15 +565,19 @@ def export_excel():
             # 現場ステータス
             status = i.status_msg if i.status_msg else "通常"
             if i.is_force_ship and status == "通常":
-                status = "🚨 赤字/納期強制出荷"
+                status = "80%未満/積込期限優先出荷"
                 
             row_data = [
                 idx,
+                i.request_code,
+                i.part_code,
+                i.vehicle_code,
+                i.destination,
                 i.name,
+                f"{i.unpacked_weight:,.1f}" if i.unpacked_weight is not None else "",
                 f"{i.weight:,.1f}",
                 dim_str,
                 pos_str,
-                " / ".join(build_constraint_tags(i)),
                 i.selection_reason if i.selection_reason else "通常",
                 i.decision_reason or i.selection_reason,
                 status
@@ -523,32 +587,26 @@ def export_excel():
                 cell = ws.cell(row=row_idx, column=col_idx)
                 cell.value = val
                 cell.border = border_thin
-                if col_idx == 1 or col_idx == 3:
+                if col_idx in {1, 7, 8}:
                     cell.alignment = Alignment(horizontal="right")
                     
                 # 色付けルールの適用
-                if col_idx == 9:
+                if col_idx == 13:
                     if "強制出荷" in status:
                         cell.font = Font(color="FF0000", bold=True) # 赤
                     elif "前倒し" in status:
                         cell.font = Font(color="008000", bold=True) # 緑
         
         # 列幅の自動調整
-        ws.column_dimensions['A'].width = 8
-        ws.column_dimensions['B'].width = 30
-        ws.column_dimensions['C'].width = 12
-        ws.column_dimensions['D'].width = 25
-        ws.column_dimensions['E'].width = 25
-        ws.column_dimensions['F'].width = 20
-        ws.column_dimensions['G'].width = 20
-        ws.column_dimensions['H'].width = 48
-        ws.column_dimensions['I'].width = 40
+        widths = [8, 22, 16, 14, 20, 30, 15, 15, 25, 25, 20, 48, 40]
+        for col_idx, width in enumerate(widths, 1):
+            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
 
     review_queue = SESSION_DATA.get("last_review_queue", [])
     if review_queue:
         ws = wb.create_sheet(title="ReviewQueue")
         headers = [
-            "品名", "確認理由", "積載可能日", "納期", "木箱期限", "納期まで(日)",
+            "品名", "確認理由", "納入予定日", "積込期限", "木箱期限", "積込期限まで(日)",
             "木箱期限まで(日)", "優先度", "分類理由", "判断根拠", "ステータス"
         ]
         for col_idx, h in enumerate(headers, 1):
