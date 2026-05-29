@@ -53,6 +53,7 @@ def build_validation_summary(issues):
 def build_data_readiness(input_profile, validation_issues):
     detected = (input_profile or {}).get("detected_columns", {})
     is_generated_simulation = bool((input_profile or {}).get("generated_simulation"))
+    is_trial_dataset = bool((input_profile or {}).get("trial_dataset"))
     checks = [
         ("ケース寸法", True, "L/W/H/名称", "開示ケースマスタまたは入力Excelから取得"),
         ("重量", detected.get("weight", False), "重量列", "生成データでは非開示値として明示した採用仮定を使用"),
@@ -98,9 +99,18 @@ def build_data_readiness(input_profile, validation_issues):
             "source": "前提条件/仮定根拠/仮定重量階級",
             "note": "工程日程・管理項目・運用規模は先方回答、寸法は開示資料を使用。非開示値は検証用の採用仮定として明示",
         })
+    elif is_trial_dataset:
+        rows.insert(0, {
+            "item": "データ性質",
+            "status": "試験データ",
+            "ready": False,
+            "source": "別枠読込",
+            "note": "標準シミュレーションデータを置き換えない確認用データ。入力列の値で計算",
+        })
     risk_level = (
         "前提明示型検証"
         if is_generated_simulation
+        else "試験データ確認用" if is_trial_dataset
         else "実務検証向き" if score >= 80 else "要追加確認" if score >= 55 else "仮定検証向き"
     )
     return {

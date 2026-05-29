@@ -16,7 +16,7 @@
             <div class="logo">ISUZU Vanning Optimizer</div>
             <div class="stepper">
                 <div class="step-dot active" id="step-1-nav">1. 読込</div>
-                <div class="step-dot" id="step-2-nav">2. 条件</div>
+                <div class="step-dot" id="step-2-nav">2. 確認</div>
                 <div class="step-dot" id="step-3-nav">3. 計算</div>
                 <div class="step-dot" id="step-4-nav">4. 結果</div>
             </div>
@@ -26,19 +26,19 @@
             <!-- ====== Step 1: Upload ====== -->
             <section id="step-1" class="step-panel active">
                 <div class="glass-card">
-                    <h2>荷物リストを読み込む</h2>
-                    <p class="subtitle">Excel(.xlsx)をドロップまたは選択してください</p>
+                    <h2>出荷指示書（Excel）を読み込む</h2>
+                    <p class="subtitle">列名は問いません。L・W・H・重量・納入日があれば自動で認識します</p>
 
                     <div class="upload-zone" id="drop-zone">
-                        <div class="upload-icon">📦</div>
+                        <div class="upload-icon">🗂️</div>
                         <p>ここにファイルをドラッグ＆ドロップ</p>
-                        <p class="hint">または、クリックして選択</p>
+                        <p class="hint">または、クリックして選択（.xlsx / .xls）</p>
                         <input type="file" id="file-input" hidden accept=".xlsx, .xls">
                     </div>
 
-                    <div style="text-align:center; margin-top:1rem;">
+                    <div style="text-align:center; margin-top:1.5rem;">
                         <a id="sample-download-link" href="/api/download_template" class="template-link">
-                            📥 テンプレートExcelをダウンロード
+                            📥 サンプルExcel（シミュレーションデータ）をダウンロード
                         </a>
                     </div>
                 </div>
@@ -47,31 +47,30 @@
             <!-- ====== Step 2: Conditions ====== -->
             <section id="step-2" class="step-panel">
                 <div class="glass-card">
-                    <h2>準備完了</h2>
-                    <p class="subtitle">読み込んだデータをもとに、最適化計算を実行します</p>
+                    <h2>積込計画の確認</h2>
+                    <p class="subtitle">内容を確認し、最適化を開始してください</p>
 
                     <div class="data-badge" id="data-badge">
-                        📦 読込済み: <strong id="total-items">0</strong> 件
+                        🗂️ 読込済み: <strong id="total-items">0</strong> 件
                     </div>
 
-                    <div id="planning-context" class="planning-context" style="display:none;"></div>
+                    <div id="planning-timeline" class="planning-timeline" style="display:none;"></div>
 
                     <div id="validation-bar" class="validation-bar" style="display:none;"></div>
 
-                    <div class="condition-row" style="display:none; margin-top:1.5rem;">
+                    <div class="condition-row" style="margin-top:1.5rem;">
                         <div class="field">
-                            <label>基準日</label>
-                            <input type="date" id="base-date" style="width:200px;">
-                        </div>
-                        <div class="field">
-                            <label>何日先まで見るか</label>
-                            <input type="number" id="must-window" min="0" max="30" value="14" style="width:100px;">
+                            <label>情報受領日</label>
+                            <div class="date-field-group">
+                                <input type="date" id="base-date" style="width:180px;">
+                                <button class="btn-today" id="btn-today" type="button">本日</button>
+                            </div>
                         </div>
                     </div>
 
                     <div class="actions">
                         <button class="btn-ghost" onclick="showStep(1)">戻る</button>
-                        <button class="btn-primary" id="btn-run">最適化を実行</button>
+                        <button class="btn-primary" id="btn-run">📊 最適化を実行</button>
                     </div>
                 </div>
             </section>
@@ -80,45 +79,69 @@
             <section id="step-3" class="step-panel">
                 <div class="glass-card loading-card">
                     <div class="pulse-ring"></div>
-                    <p id="loading-text">最適化計算中...</p>
+                    <p id="loading-text">積込パターンを計算中...</p>
+                    <div class="loading-progress-wrap">
+                        <div class="loading-progress-bar" id="loading-bar" style="width:0%"></div>
+                    </div>
+                    <div id="loading-timer" style="margin-top:0.5rem; color:#94a3b8; font-size:0.85rem; font-variant-numeric: tabular-nums;">経過時間: 0秒</div>
                 </div>
             </section>
 
             <!-- ====== Step 4: Dashboard ====== -->
             <section id="step-4" class="step-panel">
 
-                <!-- Hero KPI -->
+                <!-- Decision Banner -->
+                <div class="decision-banner" id="decision-banner">
+                    <div class="decision-main">
+                        <div class="decision-number" id="decision-number">—</div>
+                        <div class="decision-unit">
+                            本を発注
+                            <small id="decision-sub">コンテナ確定数</small>
+                        </div>
+                    </div>
+                    <div class="decision-verdict" id="decision-verdict"></div>
+                    <div class="decision-meta" id="decision-meta"></div>
+                </div>
+
+                <!-- KPI Cards -->
                 <div class="kpi-row" id="kpi-row">
                     <div class="kpi-card" id="kpi-card-containers">
-                        <div class="kpi-label">コンテナ</div>
+                        <div class="kpi-label">手配するコンテナ数</div>
                         <div class="kpi-value" id="kpi-containers">0</div>
-                        <div class="kpi-unit">本</div>
+                        <div class="kpi-unit">台</div>
                         <div class="kpi-delta" id="kpi-containers-delta"></div>
                     </div>
                     <div class="kpi-card" id="kpi-card-alerts">
-                        <div class="kpi-label">80%未満</div>
+                        <div class="kpi-label">積載目標（80%）未達</div>
                         <div class="kpi-value" id="kpi-alerts">0</div>
-                        <div class="kpi-unit">本</div>
+                        <div class="kpi-unit">台</div>
                         <div class="kpi-delta" id="kpi-alerts-delta"></div>
                     </div>
                     <div class="kpi-card" id="kpi-card-fillrate">
-                        <div class="kpi-label">平均体積充填率</div>
+                        <div class="kpi-label">平均積載効率（体積）</div>
                         <div class="kpi-value" id="kpi-fillrate">0</div>
                         <div class="kpi-unit">%</div>
                         <div class="kpi-delta" id="kpi-fillrate-delta"></div>
                     </div>
                 </div>
 
-                <!-- One-line summary -->
-                <div class="summary-line" id="summary-line"></div>
+                <!-- Compact Summary Bar -->
+                <div class="summary-bar" id="summary-bar"></div>
+
+                <!-- Container Filter Bar -->
+                <div class="filter-bar" id="filter-bar" style="display: none;">
+                    <button class="filter-btn active" data-filter="all">すべて表示 <span id="filter-count-all" class="filter-count">0</span></button>
+                    <button class="filter-btn warning" data-filter="alert">⚠️ スカスカ注意 <span id="filter-count-alert" class="filter-count">0</span></button>
+                    <button class="filter-btn success" data-filter="ok">✅ 出荷OK <span id="filter-count-ok" class="filter-count">0</span></button>
+                </div>
 
                 <!-- Container Grid -->
                 <div class="container-grid" id="container-grid"></div>
 
                 <!-- Actions -->
                 <div class="dashboard-actions">
-                    <button class="btn-ghost" onclick="showStep(2)">🔄 条件変更</button>
-                    <button class="btn-primary" id="btn-export" onclick="downloadExcel()">📋 指示書を出力 (Excel)</button>
+                    <button class="btn-ghost" onclick="showStep(2)">🔄 条件を変更する</button>
+                    <button class="btn-primary" id="btn-export" onclick="downloadExcel()">📋 バンニング指示書を出力 (Excel)</button>
                 </div>
 
             </section>
@@ -131,11 +154,14 @@
                     <div>
                         <h3 id="modal-title">3Dレイアウト</h3>
                     </div>
-                    <div class="legend">
+                    <div class="legend" id="color-legend-normal">
                         <span><span style="color:#3b82f6;">■</span> 通常</span>
                         <span><span style="color:#10b981;">■</span> 空き埋め</span>
                         <span><span style="color:#ef4444;">■</span> 強制出荷</span>
                         <span><span style="color:#ff0000;font-size:1.1em;">●</span> 重心</span>
+                    </div>
+                    <div style="margin-left:auto;">
+                        <button id="toggle-color-mode" class="btn-ghost" style="padding:4px 8px; font-size:12px;">🎨 仕向け地で色分け</button>
                     </div>
                     <button class="modal-close" onclick="close3D()">&times;</button>
                 </div>

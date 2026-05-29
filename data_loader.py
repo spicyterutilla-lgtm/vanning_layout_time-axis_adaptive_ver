@@ -33,12 +33,7 @@ class DataLoader:
             "due": ["バンニング完了期限", "納期", "出荷日", "due_date"],
             "expiration": ["保管期限", "木箱期限", "storage_deadline", "expiration_date"],
             "priority": ["優先度", "priority"],
-            "force_ship": ["強制出荷", "force_ship", "手動強制"],
-            "allow_early_ship": ["前倒し可否", "前倒し許可", "allow_early_ship"],
-            "stackable": ["段積み可否", "段積み可", "stackable"],
-            "no_stack": ["段積み不可", "上積み不可", "no_stack"],
-            "floor_only": ["床置き", "重量物下積み", "下積み指定", "floor_only"],
-            "separation_group": ["分離グループ", "同梱不可グループ", "separation_group", "混載禁止グループ"]
+            "force_ship": ["強制出荷", "force_ship", "手動強制"]
         }
 
     def _normalize_column_name(self, value) -> str:
@@ -92,6 +87,8 @@ class DataLoader:
 
     def load_from_excel(self, file_path: str, sheet_name: int = 0) -> list[Item]:
         print(f"ファイルの読み込みを開始します: {file_path}")
+        with pd.ExcelFile(file_path) as workbook:
+            workbook_sheet_names = workbook.sheet_names
         
         # まずヘッダー無しで読み込んで、列名（L, W, Hなど）が書かれている行を自動探索する
         df_raw = pd.read_excel(file_path, sheet_name=sheet_name, header=None)
@@ -130,22 +127,20 @@ class DataLoader:
         expiration_col = self._find_column(df, self.mapping_config["expiration"])
         priority_col = self._find_column(df, self.mapping_config["priority"])
         force_ship_col = self._find_column(df, self.mapping_config["force_ship"])
-        allow_early_ship_col = self._find_column(df, self.mapping_config["allow_early_ship"])
-        stackable_col = self._find_column(df, self.mapping_config["stackable"])
-        no_stack_col = self._find_column(df, self.mapping_config["no_stack"])
-        floor_only_col = self._find_column(df, self.mapping_config["floor_only"])
-        separation_group_col = self._find_column(df, self.mapping_config["separation_group"])
         self.input_profile = {
             "sheet_name": str(sheet_name),
             "header_row": header_row_idx + 1,
             "total_rows": len(df),
-            "generated_simulation": any(
-                self._normalize_column_name(col) in {
-                    self._normalize_column_name("仮定根拠"),
-                    self._normalize_column_name("仮定重量階級"),
-                    self._normalize_column_name("ケース階級"),
-                }
-                for col in df.columns
+            "generated_simulation": (
+                "生成パラメータ" in workbook_sheet_names
+                and any(
+                    self._normalize_column_name(col) in {
+                        self._normalize_column_name("仮定根拠"),
+                        self._normalize_column_name("仮定重量階級"),
+                        self._normalize_column_name("ケース階級"),
+                    }
+                    for col in df.columns
+                )
             ),
             "detected_columns": {
                 "name": bool(name_col),
@@ -162,10 +157,6 @@ class DataLoader:
                 "expiration": bool(expiration_col),
                 "priority": bool(priority_col),
                 "force_ship": bool(force_ship_col),
-                "allow_early_ship": bool(allow_early_ship_col),
-                "stackable": bool(stackable_col or no_stack_col),
-                "floor_only": bool(floor_only_col),
-                "separation_group": bool(separation_group_col),
             },
             "column_names": {
                 "weight": str(weight_col) if weight_col else "",
@@ -177,10 +168,6 @@ class DataLoader:
                 "due": str(due_col) if due_col else "",
                 "expiration": str(expiration_col) if expiration_col else "",
                 "priority": str(priority_col) if priority_col else "",
-                "allow_early_ship": str(allow_early_ship_col) if allow_early_ship_col else "",
-                "stackable": str(stackable_col or no_stack_col) if (stackable_col or no_stack_col) else "",
-                "floor_only": str(floor_only_col) if floor_only_col else "",
-                "separation_group": str(separation_group_col) if separation_group_col else "",
             }
         }
         
@@ -232,17 +219,6 @@ class DataLoader:
                 priority = int(float(row[priority_col]))
 
             force_ship = self._parse_bool(row[force_ship_col], False) if force_ship_col else False
-            allow_early_ship = self._parse_bool(row[allow_early_ship_col], True) if allow_early_ship_col else True
-            
-            stackable_val = True
-            if stackable_col:
-                stackable_val = self._parse_bool(row[stackable_col], True)
-            elif no_stack_col:
-                stackable_val = not self._parse_bool(row[no_stack_col], False)
-            stackable = stackable_val
-            
-            floor_only = self._parse_bool(row[floor_only_col], False) if floor_only_col else False
-            separation_group = self._parse_group(row[separation_group_col]) if separation_group_col else ""
             request_code = str(row[request_code_col]).strip() if request_code_col and not pd.isna(row[request_code_col]) else ""
             shipper = str(row[shipper_col]).strip() if shipper_col and not pd.isna(row[shipper_col]) else ""
             consignee = str(row[consignee_col]).strip() if consignee_col and not pd.isna(row[consignee_col]) else ""
@@ -276,10 +252,6 @@ class DataLoader:
                 vessel_loading_date=vessel_loading_date,
                 priority=priority,
                 force_ship=force_ship,
-                allow_early_ship=allow_early_ship,
-                stackable=stackable,
-                floor_only=floor_only,
-                separation_group=separation_group
             )
             items.append(item)
             

@@ -1,295 +1,10 @@
-import os
 from io import BytesIO
 import datetime
-import pandas as pd
-from flask import request, jsonify, send_file
+from flask import jsonify, send_file
 from services.session import SESSION_DATA
 from services.utils import build_container_alert_summary, build_item_brief
 from services.validation import build_data_readiness
 from vanning_engine import VOLUME_TARGET_RATE
-
-def export_rolling_excel():
-    rolling = SESSION_DATA.get("last_rolling")
-    if not rolling:
-        return jsonify({'error': 'エクスポートするローリング結果がありません'}), 400
-
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-    output = BytesIO()
-    wb = openpyxl.Workbook()
-    summary_ws = wb.active
-    summary_ws.title = "Summary"
-
-    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    note_fill = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")
-    border_thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-
-    summary_ws.merge_cells('A1:D1')
-    summary_ws['A1'] = f"【30日ローリングシミュレーション】 {rolling['start_date']} 〜 {rolling['end_date']}"
-    summary_ws['A1'] = f"【{rolling['days']}日ローリングシミュレーション】 {rolling['start_date']} 〜 {rolling['end_date']}"
-    summary_ws['A1'].font = Font(size=14, bold=True)
-
-    summary_rows = [
-        ("計画先読み日数", rolling.get("planning_window_days", 0), "日"),
-        ("赤字強制出荷判定日数", rolling.get("force_ship_window_days", 0), "日"),
-        ("期間日数", rolling["days"], "日"),
-        ("総出荷数", rolling["total_shipped"], "件"),
-        ("総コンテナ数", rolling["total_containers"], "本"),
-        ("週換算コンテナ数", rolling.get("weekly_container_rate", 0), "本/週"),
-        ("前倒し補填数", rolling["total_pulls"], "件"),
-        ("赤字コンテナ数", rolling["total_alert_containers"], "本"),
-        ("赤字率", rolling.get("alert_rate", 0), "%"),
-        ("平均体積充填率", rolling["avg_volume_rate"], "%"),
-        ("平均重量充填率", rolling["avg_weight_rate"], "%"),
-        ("期間後残", rolling["remaining_count"], "件"),
-        ("期限到来/超過残", rolling["overdue_count"], "件"),
-        ("入力除外", rolling.get("excluded_count", 0), "件"),
-    ]
-
-    for row_idx, row in enumerate(summary_rows, 3):
-        for col_idx, value in enumerate(row, 1):
-            cell = summary_ws.cell(row=row_idx, column=col_idx)
-            cell.value = value
-            cell.border = border_thin
-            if col_idx == 1:
-                cell.fill = note_fill
-                cell.font = Font(bold=True)
-
-    comparison = rolling.get("comparison")
-    if comparison:
-        start_row = 16
-        summary_ws[f'A{start_row}'] = "前倒しなし / あり 比較"
-        summary_ws[f'A{start_row}'].font = Font(bold=True)
-        headers = ["KPI", "前倒しなし", "前倒しあり", "差分"]
-        for col_idx, header in enumerate(headers, 1):
-            cell = summary_ws.cell(row=start_row + 1, column=col_idx)
-            cell.value = header
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.border = border_thin
-
-        comparison_rows = [
-            ("総コンテナ数", "total_containers", "本"),
-            ("総出荷数", "total_shipped", "件"),
-            ("赤字コンテナ数", "total_alert_containers", "本"),
-            ("期間後残", "remaining_count", "件"),
-            ("期限到来/超過残", "overdue_count", "件"),
-            ("平均体積充填率", "avg_volume_rate", "pt"),
-            ("平均重量充填率", "avg_weight_rate", "pt"),
-        ]
-        for offset, (label, key, unit) in enumerate(comparison_rows, 2):
-            row_idx = start_row + offset
-            baseline = comparison["baseline"][key]
-            optimized = comparison["optimized"][key]
-            delta = comparison["delta"][key]
-            values = [label, baseline, optimized, f"{delta:+g} {unit}"]
-            for col_idx, value in enumerate(values, 1):
-                cell = summary_ws.cell(row=row_idx, column=col_idx)
-                cell.value = value
-                cell.border = border_thin
-
-    daily_ws = wb.create_sheet(title="Daily")
-    daily_headers = [
-        "日付", "コンテナ数", "出荷件数", "前倒し補填", "赤字コンテナ",
-        "必須出荷", "前倒し候補", "未使用前倒し候補", "前倒し不可",
-        "未到着", "保留プール", "期限到来/超過残", "平均体積充填率", "平均重量充填率"
-    ]
-    for col_idx, header in enumerate(daily_headers, 1):
-        cell = daily_ws.cell(row=1, column=col_idx)
-        cell.value = header
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center")
-        cell.border = border_thin
-
-    for row_idx, day in enumerate(rolling["daily_results"], 2):
-        values = [
-            day["date"], day["containers"], day["shipped"], day["pulls"], day["alerts"],
-            day["must_ship"], day["forwardable"], day["unused_forwardable"], day["hold"],
-            day["future"], day["pool"], day["overdue_remaining"], day["avg_volume_rate"], day["avg_weight_rate"]
-        ]
-        for col_idx, value in enumerate(values, 1):
-            cell = daily_ws.cell(row=row_idx, column=col_idx)
-            cell.value = value
-            cell.border = border_thin
-
-    risk_ws = wb.create_sheet(title="RemainingRisks")
-    risk_headers = [
-        "品名", "確認理由", "積載可能日", "納期", "木箱期限", "納期まで(日)",
-        "木箱期限まで(日)", "優先度", "分類理由", "判断根拠", "ステータス"
-    ]
-    for col_idx, header in enumerate(risk_headers, 1):
-        cell = risk_ws.cell(row=1, column=col_idx)
-        cell.value = header
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center")
-        cell.border = border_thin
-
-    for row_idx, item in enumerate(rolling.get("remaining_risks", []), 2):
-        values = [
-            item["name"],
-            item["reason"],
-            item["creation_date"],
-            item["due_date"],
-            item["expiration_date"],
-            item["days_until_due"],
-            item["days_until_expiration"],
-            item["priority"],
-            item["selection_reason"],
-            item["decision_reason"],
-            item["status_msg"],
-        ]
-        for col_idx, value in enumerate(values, 1):
-            cell = risk_ws.cell(row=row_idx, column=col_idx)
-            cell.value = value
-            cell.border = border_thin
-
-    trials = rolling.get("strategy_trials", [])
-    trial_ws = None
-    if trials:
-        trial_ws = wb.create_sheet(title="StrategyTrials")
-        trial_headers = [
-            "計画先読み日数", "赤字強制出荷判定日数", "コンテナ数", "出荷件数", "前倒し補填",
-            "赤字コンテナ", "赤字率", "週換算コンテナ数", "期間後残", "期限到来/超過残",
-            "平均体積充填率", "平均重量充填率", "採用"
-        ]
-        for col_idx, header in enumerate(trial_headers, 1):
-            cell = trial_ws.cell(row=1, column=col_idx)
-            cell.value = header
-            cell.fill = header_fill
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal="center")
-            cell.border = border_thin
-
-        selected_window = rolling.get("planning_window_days")
-        selected_force_window = rolling.get("force_ship_window_days")
-        for row_idx, trial in enumerate(trials, 2):
-            is_selected = (
-                trial.get("planning_window_days") == selected_window
-                and trial.get("force_ship_window_days") == selected_force_window
-            )
-            values = [
-                trial.get("planning_window_days", 0),
-                trial.get("force_ship_window_days", 0),
-                trial.get("total_containers", 0),
-                trial.get("total_shipped", 0),
-                trial.get("total_pulls", 0),
-                trial.get("total_alert_containers", 0),
-                trial.get("alert_rate", 0),
-                trial.get("weekly_container_rate", 0),
-                trial.get("remaining_count", 0),
-                trial.get("overdue_count", 0),
-                trial.get("avg_volume_rate", 0),
-                trial.get("avg_weight_rate", 0),
-                "採用" if is_selected else "",
-            ]
-            for col_idx, value in enumerate(values, 1):
-                cell = trial_ws.cell(row=row_idx, column=col_idx)
-                cell.value = value
-                cell.border = border_thin
-                if is_selected:
-                    cell.fill = note_fill
-
-    export_sheets = [summary_ws, daily_ws, risk_ws]
-    if trial_ws:
-        export_sheets.append(trial_ws)
-
-    for ws in export_sheets:
-        for col in range(1, ws.max_column + 1):
-            ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
-
-    wb.save(output)
-    output.seek(0)
-    return send_file(
-        output,
-        download_name='rolling_simulation_report.xlsx',
-        as_attachment=True,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-def export_scenarios_excel():
-    scenario_result = SESSION_DATA.get("last_scenarios")
-    if not scenario_result:
-        return jsonify({'error': 'エクスポートするシナリオ比較結果がありません'}), 400
-
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-    output = BytesIO()
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "ScenarioComparison"
-
-    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-    header_font = Font(color="FFFFFF", bold=True)
-    note_fill = PatternFill(start_color="E0F2FE", end_color="E0F2FE", fill_type="solid")
-    border_thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-
-    ws.merge_cells('A1:L1')
-    ws['A1'] = f"【シナリオ比較】 基準日 {scenario_result['base_date']}"
-    ws['A1'].font = Font(size=14, bold=True)
-
-    recommended = scenario_result.get("recommended", {})
-    ws['A3'] = "推奨シナリオ"
-    ws['B3'] = f"必須出荷幅 {recommended.get('must_ship_window_days', '-')}日"
-    ws['C3'] = f"赤字 {recommended.get('alert_containers', '-')}本"
-    ws['D3'] = f"平均体積 {recommended.get('avg_volume_rate', '-')}%"
-    for cell in ws[3]:
-        cell.border = border_thin
-        if cell.column == 1:
-            cell.fill = note_fill
-            cell.font = Font(bold=True)
-
-    headers = [
-        "推奨", "必須出荷幅(日)", "コンテナ数", "赤字コンテナ", "平均体積充填率",
-        "平均重量充填率", "必須出荷件数", "前倒し補填", "保留プール",
-        "前倒し候補残", "前倒し不可", "未到着"
-    ]
-    for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=5, column=col_idx)
-        cell.value = header
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center")
-        cell.border = border_thin
-
-    for row_idx, scenario in enumerate(scenario_result.get("scenarios", []), 6):
-        values = [
-            "採用" if scenario.get("recommended") else "",
-            scenario.get("must_ship_window_days"),
-            scenario.get("container_count"),
-            scenario.get("alert_containers"),
-            scenario.get("avg_volume_rate"),
-            scenario.get("avg_weight_rate"),
-            scenario.get("must_ship_count"),
-            scenario.get("total_pulls"),
-            scenario.get("pool_count"),
-            scenario.get("unused_forwardable_count"),
-            scenario.get("hold_count"),
-            scenario.get("future_count"),
-        ]
-        for col_idx, value in enumerate(values, 1):
-            cell = ws.cell(row=row_idx, column=col_idx)
-            cell.value = value
-            cell.border = border_thin
-            if scenario.get("recommended"):
-                cell.fill = note_fill
-
-    widths = [10, 16, 12, 14, 16, 16, 14, 12, 12, 14, 12, 12]
-    for col_idx, width in enumerate(widths, 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
-
-    wb.save(output)
-    output.seek(0)
-    return send_file(
-        output,
-        download_name='scenario_comparison_report.xlsx',
-        as_attachment=True,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
 
 def export_excel():
     containers = SESSION_DATA.get("last_containers", [])
@@ -311,10 +26,13 @@ def export_excel():
     export_base_date = SESSION_DATA.get("last_base_date", datetime.date.today())
     export_must_ship_window_days = SESSION_DATA.get("last_must_ship_window_days", 7)
     alert_summaries = SESSION_DATA.get("last_alert_summaries", {})
+    simulation_context = SESSION_DATA.get("simulation_context") or {}
+    is_trial_export = bool(simulation_context.get("is_trial"))
+    dataset_prefix = "【試験データ】 " if is_trial_export else ""
 
     summary_ws = wb.create_sheet(title="納品順サマリー")
     summary_ws.merge_cells('A1:I1')
-    summary_ws['A1'] = "【納品順サマリー】 コンテナ別出荷判断一覧"
+    summary_ws['A1'] = f"{dataset_prefix}【納品順サマリー】 コンテナ別出荷判断一覧"
     summary_ws['A1'].font = Font(size=14, bold=True)
     summary_headers = [
         "納品順", "計画ID", "最短積込期限", "木箱期限", "体積充填率", "重量充填率",
@@ -410,7 +128,6 @@ def export_excel():
         evaluation_ws.column_dimensions["B"].width = 70
         evaluation_ws.column_dimensions["C"].width = 10
 
-    simulation_context = SESSION_DATA.get("simulation_context")
     if simulation_context:
         def pct(value):
             return "" if value is None else f"{value}%"
@@ -423,8 +140,16 @@ def export_excel():
         context_ws.merge_cells('A2:D2')
         context_ws['A2'].alignment = Alignment(wrap_text=True, vertical="top")
 
+        data_type = (
+            "試験データ（別枠読込）"
+            if simulation_context.get("is_trial")
+            else "開示ケースリスト準拠の検証データ"
+            if simulation_context.get("is_generated")
+            else "読み込みExcelデータ"
+        )
         context_rows = [
-            ("データ種別", "開示ケースリスト準拠の検証データ" if simulation_context.get("is_generated") else "読み込みExcelデータ"),
+            ("データ種別", data_type),
+            ("入力ファイル", simulation_context.get("source_filename", "")),
             ("前提プロファイル", simulation_context.get("assumption_profile_name", "")),
             ("前提バージョン", simulation_context.get("assumption_profile_version", "")),
             ("非開示値の扱い", simulation_context.get("assumption_policy", "")),
@@ -514,7 +239,7 @@ def export_excel():
         
         # コンテナサマリー部分
         ws.merge_cells('A1:M1')
-        ws['A1'] = f"【バンニング指示書】 コンテナ: {c.id}"
+        ws['A1'] = f"{dataset_prefix}【バンニング指示書】 コンテナ: {c.id}"
         ws['A1'].font = Font(size=14, bold=True)
         
         ws['A3'] = "最大重量(kg)"
@@ -644,7 +369,7 @@ def export_excel():
     output.seek(0)
     return send_file(
         output, 
-        download_name='vanning_instructions.xlsx', 
+        download_name='trial_vanning_instructions.xlsx' if is_trial_export else 'vanning_instructions.xlsx',
         as_attachment=True,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )

@@ -1,4 +1,6 @@
 import copy
+import time
+import datetime
 from flask import request, jsonify
 from services.session import SESSION_DATA, build_valid_items, reset_runtime_state
 from services.validation import classify_items_for_day, validate_container_geometry
@@ -7,15 +9,20 @@ from services.utils import (
     build_efficiency_summary
 )
 from vanning_engine import VanningEngine, LARGE_PLAN_ITEM_THRESHOLD
+from metaheuristics_engine import GeneticAlgorithmOptimizer
 
 def handle_optimize():
+    start_time = time.time()
     data = request.get_json(silent=True) or {}
     base_date_str = data.get('base_date')
-    must_ship_window_days = read_bounded_int(data, 'must_ship_window_days', 7, 0, 30)
+    optimization_mode = data.get('optimization_mode', 'fast')
+    # 情報受領日（計算基準日）から船積日までの21日間を積込対象ウィンドウとして固定
+    must_ship_window_days = 21
+    
     current_date, date_error = parse_base_date(base_date_str)
     if date_error:
         return jsonify({'error': date_error}), 400
-        
+
     items = SESSION_DATA.get("items", [])
     if not items:
         return jsonify({'error': 'データがありません'}), 400
@@ -34,7 +41,10 @@ def handle_optimize():
         else None
     )
 
-    engine = VanningEngine()
+    vessel_loading_date = current_date + datetime.timedelta(days=21)
+    engine = VanningEngine(vanning_base_date=vessel_loading_date)
+
+    # ── 常に近似値モード（高速）を先に実行 ──
     containers, pool, unused_forwardable = engine.run_time_axis_packing(
         target_items,
         forwardable_items,
@@ -42,7 +52,7 @@ def handle_optimize():
         allow_partial_red_pull=True
     )
     if alternative_items and any(c.fill_rate_volume < 80.0 for c in containers):
-        alternative_engine = VanningEngine(prioritize_open_containers=False)
+        alternative_engine = VanningEngine(prioritize_open_containers=False, vanning_base_date=vessel_loading_date)
         alternative_containers, alternative_pool, alternative_unused = alternative_engine.run_time_axis_packing(
             alternative_items[0],
             alternative_items[1],
@@ -55,11 +65,34 @@ def handle_optimize():
             pool = alternative_pool
             unused_forwardable = alternative_unused
 
+    # ── 深層モード: 近似値モードの結果をエリートとしてGAに渡す ──
+    if optimization_mode == "deep":
+        SESSION_DATA["ga_status"] = {"generation": 0, "best_score": 0}
+
+        def ga_progress_callback(gen, score):
+            SESSION_DATA["ga_status"]["generation"] = gen
+            SESSION_DATA["ga_status"]["best_score"] = score
+
+        ga = GeneticAlgorithmOptimizer(
+            target_items=copy.deepcopy(target_items),
+            forwardable_items=copy.deepcopy(forwardable_items),
+            current_date=current_date,
+            vanning_base_date=vessel_loading_date,
+            baseline_containers=containers,
+            baseline_pool=pool,
+            baseline_unused=unused_forwardable,
+            time_limit_seconds=60,      # 高レベル探索のため制限時間を延長 (30 -> 60)
+            population_size=100,        # Numbaによる高速化の恩恵を活かし個体数を大幅増 (20 -> 100)
+            progress_callback=ga_progress_callback
+        )
+        containers, pool, unused_forwardable = ga.run()
+        SESSION_DATA["ga_status"]["finished"] = True
+
     containers = order_containers_for_output(containers)
     for idx, c in enumerate(containers, 1):
         c.display_order = idx
         c.id = f"C-{idx:03d}"
-    
+
     SESSION_DATA["last_containers"] = containers
     SESSION_DATA["last_base_date"] = current_date
     SESSION_DATA["last_must_ship_window_days"] = must_ship_window_days
@@ -80,7 +113,7 @@ def handle_optimize():
         "geometry_warning_count": geometry_warning_count,
     }
     SESSION_DATA["last_optimization_summary"] = optimization_summary
-    
+
     response_containers = []
     for c in containers:
         c_dict = {
@@ -99,6 +132,7 @@ def handle_optimize():
             c_dict["items"].append({
                 "id": item.id,
                 "name": item.name,
+                "destination": item.destination,
                 "l": item.length,
                 "w": item.width,
                 "h": item.height,
@@ -114,6 +148,9 @@ def handle_optimize():
 
     return jsonify({
         "containers": response_containers,
+        "planning_conditions": {
+            "base_date": current_date.isoformat(),
+        },
         "alert_containers": alert_containers,
         "optimization_summary": optimization_summary,
         "layout_improvements": {
@@ -134,7 +171,8 @@ def handle_optimize():
             "must_ship_count": len(target_items),
             "forwardable_count": len(forwardable_items),
             "future_count": len(day_groups["future"])
-        }
+        },
+        "execution_time_seconds": round(time.time() - start_time, 2)
     })
 
 def handle_override():
@@ -156,3 +194,7 @@ def handle_override():
         return jsonify({'error': '指定されたアイテムが見つかりません'}), 404
 
     return jsonify({'message': f'{updated}件のアイテムを更新しました'})
+
+def handle_ga_status():
+    status = SESSION_DATA.get("ga_status", {})
+    return jsonify(status)
