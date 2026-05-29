@@ -1,4 +1,10 @@
-/* ============================================
+import re
+
+with open('static/script.js', 'r', encoding='utf-8') as f:
+    js_content = f.read()
+
+# We will define a completely new JS based on the existing one, merging logic from ui_test.html.
+new_js = """/* ============================================
    ISUZU Vanning Optimizer — Frontend Logic
    ============================================ */
 
@@ -429,222 +435,18 @@ function downloadExcel() { window.location.href = '/api/export'; }
 // =====================
 // 3D Visualization (Three.js) - Unchanged
 // =====================
+"""
 
-let scene, camera, renderer, controls;
-let animId;
-let interactableMeshes = [];
-let raycaster = new THREE.Raycaster();
-let mouse = new THREE.Vector2();
+with open('static/script.js', 'r', encoding='utf-8') as f:
+    js_content = f.read()
 
-function init3D() {
-    if (renderer) return;
-    const container = document.getElementById('3d-container');
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0f172a);
+# We extract the 3D part from the original script and append it
+marker = "// =====================\n// 3D Visualization (Three.js)\n// ====================="
+parts = js_content.split(marker)
+if len(parts) > 1:
+    new_js += parts[1]
 
-    camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
-    camera.position.set(15, 10, 15);
+with open('static/script.js', 'w', encoding='utf-8') as f:
+    f.write(new_js)
 
-    renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
-    container.appendChild(renderer.domElement);
-
-    controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = false;
-
-    window.addEventListener('resize', () => {
-        const modal = document.getElementById('modal-3d');
-        if (modal.classList.contains('visible')) {
-            camera.aspect = container.clientWidth / container.clientHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(container.clientWidth, container.clientHeight);
-        }
-    });
-
-    container.addEventListener('mousemove', (event) => {
-        const rect = container.getBoundingClientRect();
-        mouse.x = ((event.clientX - rect.left) / container.clientWidth) * 2 - 1;
-        mouse.y = -((event.clientY - rect.top) / container.clientHeight) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(interactableMeshes);
-        const tooltip = document.getElementById('3d-tooltip');
-
-        if (intersects.length > 0) {
-            const item = intersects[0].object.userData.item;
-            tooltip.style.display = 'block';
-            tooltip.style.left = (event.clientX - rect.left + 15) + 'px';
-            tooltip.style.top = (event.clientY - rect.top + 15) + 'px';
-
-            let extra = '';
-            if (item.status_msg && item.status_msg.includes('前倒し')) extra = `<br><span style="color:#10b981;">空き埋め補填</span>`;
-            else if (item.is_force_ship) extra = `<br><span style="color:#ef4444;">強制出荷</span>`;
-            const destination = item.destination ? `<br><span style="color:#cbd5e1;">仕向け地: ${esc(item.destination)}</span>` : '';
-
-            tooltip.innerHTML = `<strong>${esc(item.name)}</strong><br>
-                <span style="color:#94a3b8;">L${item.l} × W${item.w} × H${item.h} mm</span>${destination}${extra}`;
-        } else {
-            tooltip.style.display = 'none';
-        }
-    });
-
-    animate();
-}
-
-function animate() {
-    animId = requestAnimationFrame(animate);
-    if (controls) controls.update();
-    if (renderer && scene && camera) renderer.render(scene, camera);
-}
-
-window.useDestinationColor = false;
-
-function close3D() {
-    document.getElementById('modal-3d').classList.remove('visible');
-}
-
-document.getElementById('toggle-color-mode')?.addEventListener('click', (e) => {
-    window.useDestinationColor = !window.useDestinationColor;
-    e.target.textContent = window.useDestinationColor ? '🟦 通常の色分けに戻す' : '🎨 仕向け地で色分け';
-    document.getElementById('color-legend-normal').style.display = window.useDestinationColor ? 'none' : 'flex';
-    const containerId = document.getElementById('modal-title').getAttribute('data-c-id');
-    if (containerId) open3D(containerId, true);
-});
-
-function open3D(containerId, preserveCamera = false) {
-    document.getElementById('modal-3d').classList.add('visible');
-    const container = document.getElementById('3d-container');
-    const cData = currentContainersData.find(c => c.id === containerId);
-
-    const titleEl = document.getElementById('modal-title');
-    titleEl.textContent = cData ? `${esc(containerId)} の3Dレイアウト` : containerId;
-    titleEl.setAttribute('data-c-id', containerId);
-
-    setTimeout(() => {
-        if (!preserveCamera) init3D();
-
-        if (scene) {
-            scene.traverse(child => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) {
-                    if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-                    else child.material.dispose();
-                }
-            });
-            while (scene.children.length > 0) {
-                scene.remove(scene.children[0]);
-            }
-        }
-
-        interactableMeshes = [];
-        document.getElementById('3d-tooltip').style.display = 'none';
-
-        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(10, 20, 10);
-        scene.add(dirLight);
-
-        const cW = 2.300, cH = 2.400, cL = 12.0;
-        const geo = new THREE.BoxGeometry(cW + 0.004, cH + 0.004, cL + 0.004);
-        const edges = new THREE.EdgesGeometry(geo);
-        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x475569, linewidth: 2 }));
-        line.position.set(cW / 2, cH / 2, cL / 2);
-        scene.add(line);
-
-        const gridHelper = new THREE.GridHelper(16, 16, 0x334155, 0x1e293b);
-        gridHelper.position.set(cW / 2, 0, cL / 2);
-        scene.add(gridHelper);
-
-        if (!cData) return;
-        const colorModeButton = document.getElementById('toggle-color-mode');
-        const hasDestination = cData.items.some(item => item.destination);
-        if (colorModeButton) {
-            colorModeButton.disabled = !hasDestination;
-            colorModeButton.title = hasDestination ? '仕向け地ごとに色を切り替えます' : 'このデータには仕向け地がありません';
-        }
-
-        const statsOverlay = document.getElementById('3d-stats-overlay');
-        const volumeRateColor = cData.volume_rate >= 80 ? '#10b981' : '#ef4444';
-        statsOverlay.innerHTML = `
-            <table>
-                <tr><td class="lbl">内寸</td><td class="val">12.0 × 2.30 × 2.40 m</td></tr>
-                <tr><td class="lbl">重量</td><td class="val">${Math.round(cData.weight_val).toLocaleString()} / ${cData.weight_max.toLocaleString()} kg</td></tr>
-                <tr><td class="lbl">充填率</td><td class="val" style="color:${volumeRateColor};">${Number(cData.volume_rate).toFixed(1)}%</td></tr>
-            </table>`;
-
-        const getDestColor = (dest) => {
-            if (!dest) return 0x94a3b8;
-            let hash = 0;
-            for (let i = 0; i < dest.length; i++) hash = dest.charCodeAt(i) + ((hash << 5) - hash);
-            const color = new THREE.Color();
-            color.setHSL((Math.abs(hash) % 360) / 360, 0.7, 0.5);
-            return color.getHex();
-        };
-
-        cData.items.forEach(item => {
-            let iL = item.l / 1000, iW = item.w / 1000, iH = item.h / 1000;
-            let pxL = item.rotated ? iW : iL;
-            let pyL = item.rotated ? iL : iW;
-            const sX = pyL, sY = iH, sZ = pxL;
-            const x = item.y / 1000, y = item.z / 1000, z = item.x / 1000;
-
-            const margin = 0.01;
-            const vX = Math.max(0.01, sX - margin);
-            const vY = Math.max(0.01, sY - margin);
-            const vZ = Math.max(0.01, sZ - margin);
-
-            const boxGeo = new THREE.BoxGeometry(vX, vY, vZ);
-            let color = 0x3b82f6;
-
-            if (window.useDestinationColor) {
-                color = getDestColor(item.destination);
-            } else {
-                if (item.is_force_ship) color = 0xef4444;
-                else if (item.status_msg && item.status_msg.includes('前倒し')) color = 0x10b981;
-            }
-
-            const material = new THREE.MeshStandardMaterial({
-                color, roughness: 0.5, metalness: 0.1,
-                polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
-            });
-            const mesh = new THREE.Mesh(boxGeo, material);
-            mesh.userData = { item };
-            interactableMeshes.push(mesh);
-
-            const boxEdges = new THREE.EdgesGeometry(boxGeo);
-            mesh.add(new THREE.LineSegments(boxEdges, new THREE.LineBasicMaterial({ color: 0x1e293b, linewidth: 2 })));
-            mesh.position.set(x + sX / 2, y + sY / 2, z + sZ / 2);
-            scene.add(mesh);
-        });
-
-        const cgGeo = new THREE.SphereGeometry(0.15, 16, 16);
-        const cgMat = new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false, transparent: true });
-        const cgSphere = new THREE.Mesh(cgGeo, cgMat);
-        const cgX = cData.cg_y / 1000, cgY = cData.cg_z / 1000, cgZ = cData.cg_x / 1000;
-        cgSphere.position.set(cgX, cgY, cgZ);
-        scene.add(cgSphere);
-
-        const dropGeo = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(cgX, cgY, cgZ), new THREE.Vector3(cgX, 0, cgZ)
-        ]);
-        const dropLine = new THREE.Line(dropGeo, new THREE.LineDashedMaterial({ color: 0xff0000, dashSize: 0.1, gapSize: 0.1, depthTest: false, transparent: true }));
-        dropLine.computeLineDistances();
-        scene.add(dropLine);
-
-        const clGeo = new THREE.BufferGeometry().setFromPoints([
-            new THREE.Vector3(cW / 2, 0.01, 0), new THREE.Vector3(cW / 2, 0.01, cL)
-        ]);
-        const cl = new THREE.Line(clGeo, new THREE.LineDashedMaterial({ color: 0xff0000, dashSize: 0.4, gapSize: 0.2 }));
-        cl.computeLineDistances();
-        scene.add(cl);
-
-        camera.position.set(cW / 2, cH + 3, cL + 6);
-        controls.target.set(cW / 2, cH / 2, cL / 2);
-        controls.update();
-
-        camera.aspect = container.clientWidth / container.clientHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(container.clientWidth, container.clientHeight);
-    }, 50);
-}
+print("Updated script.js successfully")

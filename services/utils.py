@@ -198,6 +198,15 @@ def build_remaining_risks(remaining_items, reference_date, limit=20):
 
 
 def build_container_alert_summary(container, current_date, must_ship_window_days, blocker_counts=None):
+    cg_x, cg_y, _ = container.compute_cg()
+    if cg_x is not None and cg_y is not None:
+        cg_dist = math.sqrt((cg_x - container.length/2)**2 + (cg_y - container.width/2)**2)
+        if cg_dist > 300.0:
+            return {
+                "title": "重心エラー（300mm超過）",
+                "detail": f"積載物の重心が中心から {cg_dist:.1f}mm 離れており、安全基準（半径300mm以内）を満たしていません。再配置が必要です。"
+            }
+
     is_alert = container.fill_rate_volume < VOLUME_TARGET_RATE
     pulled_count = sum(1 for item in container.items if item.status_msg and "前倒し" in item.status_msg)
     if not is_alert:

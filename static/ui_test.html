@@ -8,6 +8,71 @@
     <link rel="stylesheet" href="style.css?v=2">
     <style>
         /* UIテスト用の追加・上書きスタイル */
+        .story-dashboard {
+            gap: 1rem !important;
+            margin-bottom: 1rem !important;
+        }
+        .story-panel {
+            padding: 1rem !important;
+        }
+
+        /* 折りたたみ機能のスタイル */
+        .story-dashboard {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+        .story-body {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            max-height: 800px;
+            opacity: 1;
+            overflow: hidden;
+            transform-origin: top;
+        }
+        .story-dashboard.collapsed .story-body {
+            max-height: 0;
+            opacity: 0;
+            padding: 0;
+            margin: 0;
+        }
+        .story-dashboard.collapsed .story-panel {
+            padding: 0.75rem 1rem !important;
+            gap: 0 !important;
+            background: rgba(255, 255, 255, 0.7);
+        }
+        .story-dashboard.collapsed .story-header h4 {
+            font-size: 0.95rem;
+        }
+        .story-dashboard.collapsed {
+            margin-bottom: 0.5rem !important;
+            gap: 0.5rem !important;
+        }
+        
+        .collapse-toggle-btn {
+            position: absolute;
+            top: 0;
+            right: 10px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s;
+            z-index: 10;
+        }
+        .collapse-toggle-btn:hover {
+            color: var(--text-primary);
+        }
+        .collapse-toggle-btn .icon {
+            transition: transform 0.4s;
+        }
+        .story-dashboard.collapsed .collapse-toggle-btn .icon {
+            transform: rotate(180deg);
+        }
+
         body {
             font-family: 'Inter', 'BIZ UDPGothic', 'Hiragino Sans', 'Meiryo', sans-serif !important;
             -webkit-font-smoothing: antialiased;
@@ -121,19 +186,20 @@
         }
         .story-dashboard {
             display: flex;
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
+            gap: 1rem;
+            margin-bottom: 1rem;
             flex-shrink: 0;
+            position: relative;
         }
         .story-panel {
             flex: 1;
             background: var(--bg-card);
             border: 1px solid var(--border-subtle);
             border-radius: var(--radius-lg);
-            padding: 1.25rem;
+            padding: 1rem;
             display: flex;
             flex-direction: column;
-            gap: 1rem;
+            gap: 0.75rem;
             position: relative;
             opacity: 0.4;
             transition: all 0.5s ease;
@@ -412,9 +478,11 @@
         /* 新しいミクロ画面（モーダル）のレイアウト */
         .workspace-modal {
             display: flex;
-            height: calc(100vh - 100px);
+            flex: 1;
+            overflow: hidden;
             gap: 1.5rem;
             padding: 1.5rem;
+            min-height: 600px;
         }
         .workspace-3d {
             flex: 2;
@@ -506,11 +574,11 @@
             display: flex;
             align-items: center;
             gap: 1rem;
-            padding: 0.85rem 1rem;
+            padding: 0.6rem 0.8rem;
             background: white;
             border: 1px solid #e2e8f0;
             border-radius: 8px;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.35rem;
             cursor: grab;
             transition: all 0.2s;
         }
@@ -546,14 +614,47 @@
 </head>
 <body>
     <div class="app">
-        <header class="app-header">
+        <header class="app-header" style="position: relative;">
+            <button id="reset-btn" class="btn-ghost" style="position: absolute; left: 1.5rem; display: none; align-items: center; gap: 6px; padding: 0.4rem 1rem; border-radius: 99px; font-size: 0.85rem; border: 1px solid transparent; background: rgba(241, 245, 249, 0.8); color: var(--text-secondary); transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#0f172a'" onmouseout="this.style.background='rgba(241, 245, 249, 0.8)'; this.style.color='var(--text-secondary)'" onclick="location.reload()">
+                <span style="font-weight: bold; font-size: 1rem; line-height: 1;">←</span> 戻る
+            </button>
             <div class="logo">ISUZU Vanning Optimizer <span style="font-size:0.8rem; background:#3b82f6; color:white; padding:2px 8px; border-radius:12px; margin-left:10px;">UIテスト版</span></div>
         </header>
 
-        <main style="max-width: 1440px; width: 100%; margin: 0 auto; padding-top: 0.5rem; flex: 1; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 1rem;">
+        <main style="width: 100%; margin: 0 auto; padding: 0.5rem 1.5rem 1rem 1.5rem; flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;">
             
+            <!-- 初期画面 (Welcome Screen) -->
+            <div id="welcome-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 2rem; animation: fadeSlideIn 0.5s ease;">
+                
+                <div style="text-align: center; margin-bottom: 1rem;">
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #1e293b; margin-bottom: 0.5rem;">最適化データをインポート</h2>
+                    <p style="color: var(--text-secondary);">出荷指示書をアップロードして、AIによる最適な積載プランを作成します</p>
+                </div>
+
+                <div class="input-panel" style="flex-direction: column; padding: 0; gap: 1.5rem; min-width: 400px; background: transparent; border: none; box-shadow: none;">
+                    <div class="input-dropzone" style="padding: 3rem 2rem; background: rgba(255,255,255,0.5); backdrop-filter: blur(8px);">
+                        <div style="font-size:3rem; margin-bottom:1rem;">🗂️</div>
+                        <strong style="font-size: 1.2rem;">出荷指示書（Excel）をドロップ</strong>
+                        <div style="font-size:0.9rem; margin-top:0.75rem; color: var(--text-muted);">読込完了: 1,240件 (06/01 - 06/15)</div>
+                    </div>
+                    <div class="input-actions" style="display:flex; flex-direction:column; gap:1.5rem; width: 100%;">
+                        <div class="field">
+                            <label style="font-weight: bold; margin-bottom: 0.5rem; display: block;">基準日（この日以降の荷物を前倒し候補とする）</label>
+                            <div class="date-field-group">
+                                <input type="date" value="2026-06-01" style="width:100%; padding: 0.75rem;">
+                            </div>
+                        </div>
+                        <button class="btn-primary" style="width:100%; padding: 1rem; font-size: 1.2rem;" onclick="startOptimization()">📊 最適化を実行</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 以下のダッシュボード要素は最初は非表示 -->
             <!-- 上部: 最適化ストーリー (プログレッシブ開示) -->
-            <div class="story-dashboard">
+            <div class="story-dashboard" id="story-dashboard" style="flex-shrink: 0; padding-top: 22px; display: none;">
+                <button class="collapse-toggle-btn" onclick="toggleStoryCollapse()">
+                    <span class="icon">▲</span> ストーリーを開閉
+                </button>
                 <!-- Step 1: 現状 -->
                 <div class="story-panel" id="story-1">
                     <div class="story-header">
@@ -571,14 +672,14 @@
                                         <span style="font-size:0.85rem; color:var(--text-secondary);">純粋な体積からの理論最小値 <span style="font-size:0.75rem;">(40ft換算)</span>:</span>
                                         <span style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">(2,400m³ ÷ 有効容積60m³ = 40)</span>
                                     </div>
-                                    <span style="font-weight:bold; color:var(--text-primary); margin-top:2px;">40台</span>
+                                    <span style="font-weight:bold; color:var(--text-primary); margin-top:2px; flex-shrink:0; white-space:nowrap;">40台</span>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-top:0.5rem;">
                                     <div style="display:flex; flex-direction:column;">
                                         <span style="font-size:0.85rem; color:var(--text-secondary);">予測コンテナ数（グリーディ法）:</span>
                                         <span style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">(※納期・仕向け地順の単純割当 ＋ 従来の標準積載率で概算)</span>
                                     </div>
-                                    <strong style="color:var(--danger); font-size:1.1rem; margin-top:2px;">55台</strong>
+                                    <strong style="color:var(--danger); font-size:1.1rem; margin-top:2px; flex-shrink:0; white-space:nowrap;">55台</strong>
                                 </div>
                             </div>
                             <div class="data-item" style="opacity:0; font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem; background:rgba(239, 68, 68, 0.05); padding:0.5rem; border-radius:4px; border-left:3px solid var(--danger);" id="step1-data2">
@@ -664,31 +765,33 @@
                 </div>
             </div>
 
-            <!-- 下部: ワークスペース (サイドバー + メイン画面) -->
-            <div class="workspace-layout" style="display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; align-items: stretch; overflow: hidden; flex: 1;">
-                
-                <!-- 左サイドバー (コントロールパネル) -->
-                <div class="sidebar" style="overflow-y: auto;">
-                    <div class="input-panel" style="flex-direction: column; padding: 1rem; gap: 1rem;">
-                        <div class="input-dropzone">
-                            <div style="font-size:1.5rem; margin-bottom:0.25rem;">🗂️</div>
-                            <strong>出荷指示書（Excel）をドロップ</strong>
-                            <div style="font-size:0.8rem; margin-top:0.5rem;">読込完了: 1,240件 (06/01 - 06/15)</div>
-                        </div>
-                        <div class="input-actions" style="display:flex; flex-direction:column; gap:1rem;">
-                            <div class="field">
-                                <label>基準日（この日以降の荷物を前倒し候補とする）</label>
-                                <div class="date-field-group">
-                                    <input type="date" value="2026-06-01" style="width:100%;">
-                                </div>
-                            </div>
-                            <button class="btn-primary" style="width:100%;" onclick="startStorySimulation()">📊 最適化を実行</button>
-                        </div>
-                    </div>
+            <!-- 進行スケジュール (Timeline) -->
+            <div class="schedule-timeline" id="schedule-timeline" style="flex-shrink: 0; margin-bottom: 0.5rem; display: none;">
+                <div class="timeline-step step-today">
+                    <div class="step-label">📌 情報受領（今日）</div>
+                    <div class="step-date">2026-05-28</div>
                 </div>
+                <div class="timeline-step">
+                    <div class="step-label">📐 レイアウト確定</div>
+                    <div class="step-date">2026-06-04</div>
+                </div>
+                <div class="timeline-step step-vanning">
+                    <div class="step-label">🏭 バンニング期間</div>
+                    <div class="step-date">2026-06-11 ~ 2026-06-16</div>
+                </div>
+                <div class="timeline-step">
+                    <div class="step-label">🚢 船積日</div>
+                    <div class="step-date">2026-06-18</div>
+                </div>
+            </div>
+
+            <!-- 下部: ワークスペース (メイン画面) -->
+            <div class="workspace-layout" id="workspace-layout" style="display: none; grid-template-columns: 1fr; gap: 1rem; align-items: stretch; overflow: hidden; flex: 1;">
+                
+
 
                 <!-- 右メインエリア (コンテナリスト) -->
-                <div class="step-panel active" style="overflow-y: auto; display: flex; flex-direction: column; padding-right: 0.5rem;">
+                <div class="step-panel active" style="overflow-y: auto; flex: 1; min-height: 0; display: flex; flex-direction: column; padding-right: 0.5rem;">
                     <div style="margin: 0 0 1rem; display:flex; justify-content:space-between; align-items:flex-end; position: sticky; top: 0; background: var(--bg-primary); z-index: 20; padding-bottom: 10px;">
                         <div style="display:flex; flex-direction:column; gap: 0.75rem;">
                             <h3 style="margin:0; color:#1e293b; font-size:1.1rem;">コンテナ一覧 <span style="font-size:0.85rem; font-weight:normal; color:#64748b; margin-left:10px;">納期（CYカット）が近い順</span></h3>
@@ -703,7 +806,7 @@
                     </div>
 
                 <!-- Container Grid (Permanently set to List View) -->
-                <div class="container-grid list-view" style="padding: 12px; margin: -12px;">
+                <div class="container-grid list-view" style="padding: 0 16px 16px 16px;">
                     
                     <!-- 納期直近（必須）カード -->
                     <div class="c-card must-ship" onclick="document.getElementById('modal-test').style.display='flex'">
@@ -778,19 +881,19 @@
                             </div>
                         </div>
                         <div class="c-stats-grid">
-                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ok">81.2<small>%</small></div></div>
+                                <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ok">81.2<small>%</small></div></div>
                             <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">19,800<small>kg</small></div></div>
                             <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">18<small>個</small></div></div>
                         </div>
                     </div>
-
                 </div>
-            </div>
+                </div> <!-- end of step-panel -->
+            </div> <!-- end of workspace-layout -->
         </main>
 
         <!-- ミクロ画面（個別作業ワークスペース）モック -->
-        <div class="modal-overlay" id="modal-test" style="display:none; padding: 2rem;">
-            <div class="modal-content" style="max-width: 1400px; height: 100%; display:flex; flex-direction:column;">
+        <div class="modal-overlay" id="modal-test" style="display:none; padding: 1rem;">
+            <div class="modal-content" style="max-width: 1400px; height: 96vh; display:flex; flex-direction:column;">
                 <div class="modal-header">
                     <div>
                         <h3 style="margin:0; font-size:1.2rem;">C-005 <span style="font-weight:normal; font-size:0.9rem; color:#64748b; margin-left:10px;">個別作業ワークスペース</span></h3>
@@ -936,11 +1039,35 @@
 
             function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
             
+            async function startOptimization() {
+                // 初期画面を隠し、ダッシュボードを表示
+                document.getElementById('welcome-screen').style.display = 'none';
+                
+                const dashboard = document.getElementById('story-dashboard');
+                const timeline = document.getElementById('schedule-timeline');
+                const workspace = document.getElementById('workspace-layout');
+                const resetBtn = document.getElementById('reset-btn');
+                
+                dashboard.style.display = 'flex';
+                timeline.style.display = 'grid';
+                workspace.style.display = 'grid';
+                resetBtn.style.display = 'flex';
+
+                // 少し待ってからシミュレーション開始
+                await sleep(100);
+                startStorySimulation();
+            }
+
             async function startStorySimulation() {
-                const containerList = document.querySelector('.step-panel');
-                containerList.style.transition = 'opacity 0.3s ease';
-                containerList.style.opacity = '0.1';
+                // Reset states
+                const containerList = document.querySelector('.container-grid');
+                containerList.style.opacity = '1';
                 containerList.style.pointerEvents = 'none';
+                
+                const cards = document.querySelectorAll('.c-card');
+                cards.forEach(card => {
+                    card.classList.remove('deployed');
+                });
 
                 [1,2,3].forEach(i => {
                     document.getElementById('story-'+i).className = 'story-panel';
@@ -1045,11 +1172,24 @@
                 document.getElementById('status-3').innerText = '完了';
 
                 document.getElementById('modal-test').style.display = 'none';
-                
+
+                // 計算完了後に自動で折りたたんで一覧領域を確保
+                await sleep(500);
+                document.getElementById('story-dashboard').classList.add('collapsed');
+
+                // パネルが折りたたまれた直後に、シャッターのようにカードを順次展開
                 await sleep(300);
-                containerList.style.transition = 'opacity 1s ease';
-                containerList.style.opacity = '1';
+                for(let i=0; i<cards.length; i++) {
+                    cards[i].classList.add('deployed');
+                    await sleep(150); // だららららと落ちてくる間隔
+                }
+                
                 containerList.style.pointerEvents = 'auto';
+            }
+
+            function toggleStoryCollapse() {
+                const dashboard = document.getElementById('story-dashboard');
+                dashboard.classList.toggle('collapsed');
             }
 
             function simulateOverload() {
@@ -1117,6 +1257,50 @@
                 // Restore dropzone functionality
                 document.querySelector('.dropzone-mock').onclick = simulateOverload;
             }
+
+            function generateScrollableCards() {
+                const grid = document.querySelector('.container-grid.list-view');
+                let html = '';
+                for (let i = 3; i <= 20; i++) {
+                    if (i === 5) continue;
+                    
+                    const num = i.toString().padStart(3, '0');
+                    const isOk = i % 3 !== 0;
+                    const fillPct = isOk ? (80 + (Math.random() * 15)).toFixed(1) : (60 + (Math.random() * 15)).toFixed(1);
+                    const weight = (10000 + Math.random() * 15000).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+                    
+                    html += `
+                    <div class="c-card ${isOk ? 'ok' : 'warn'}" onclick="document.getElementById('modal-test').style.display='flex'">
+                        <div class="c-head">
+                            <div class="c-num">
+                                <span style="font-weight:bold; white-space:nowrap; font-size:1.1rem; color:var(--text-primary);">C-${num}</span>
+                                <span style="font-size:0.7rem; background:#f8fafc; color:#64748b; padding:2px 6px; border-radius:4px; margin-top:4px; white-space:nowrap;">納期: 06/10</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                                ${isOk ? '<span class="c-badge ok" style="white-space:nowrap;">出荷可</span>' : '<span class="c-badge" style="background:#f59e0b; color:white; border:none; white-space:nowrap; padding:4px 10px;">一部未積載</span>'}
+                            </div>
+                        </div>
+                        <div class="fill-bar-wrap">
+                            <div class="fill-bar-labels"><span>積載効率</span><span class="fill-pct">${fillPct}%</span></div>
+                            <div class="fill-bar-track">
+                                <div class="fill-bar-fill ${isOk ? 'ok' : 'warn'}" style="width:${fillPct}%"></div>
+                                <div class="fill-bar-target"></div>
+                            </div>
+                        </div>
+                        <div class="c-stats-grid">
+                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ${isOk ? 'ok' : 'warn'}">${fillPct}<small>%</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">${weight}<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">24<small>個</small></div></div>
+                        </div>
+                    </div>
+                    `;
+                }
+                grid.insertAdjacentHTML('beforeend', html);
+            }
+
+            document.addEventListener('DOMContentLoaded', () => {
+                generateScrollableCards();
+            });
         </script>
     </div>
 </body>

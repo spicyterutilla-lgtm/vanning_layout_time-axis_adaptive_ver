@@ -215,7 +215,14 @@ def classify_items_for_day(items, current_date, must_ship_window_days=7):
     return groups
 
 def build_constraint_tags(item):
-    return []
+    tags = []
+    if not item.stackable:
+        tags.append("上積み厳禁")
+    if item.floor_only:
+        tags.append("床面配置限定")
+    if not item.rotation_allowed:
+        tags.append("水平回転不可")
+    return tags
 
 def nearest_deadline(item):
     candidates = [item.due_date]
