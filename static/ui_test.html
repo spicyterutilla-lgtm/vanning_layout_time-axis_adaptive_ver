@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>【UIテスト】いすゞ KDバンニングシミュレーター</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=2">
+    <style>
+        /* UIテスト用の追加・上書きスタイル */
+        body {
+            font-family: 'Inter', 'BIZ UDPGothic', 'Hiragino Sans', 'Meiryo', sans-serif !important;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            letter-spacing: 0.02em;
+        }
+        
+        /* 統合されたヘッダー（ステップ排除） */
+        .app-header {
+            justify-content: center; /* ロゴを中央に */
+        }
+        .stepper { display: none; }
+
+        /* 統合された入力エリア */
+        .story-status {
+            font-size: 0.8rem;
+            padding: 2px 8px;
+            border-radius: 99px;
+            background: rgba(100, 116, 139, 0.1);
+            color: var(--text-secondary);
+        }
+        .alert-banner {
+            background: #fef2f2;
+            color: #ef4444;
+            border: 1px solid #f87171;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            animation: fadeSlideIn 0.3s ease;
+        }
+        .iso-item.overflow {
+            background: rgba(239, 68, 68, 0.8);
+            border: 2px dashed #b91c1c;
+            transform: rotateX(60deg) rotateZ(-45deg) translate3d(80px, -80px, 40px);
+            z-index: 10;
+        }
+        .btn-disabled {
+            background: #cbd5e1 !important;
+            color: #94a3b8 !important;
+            cursor: not-allowed !important;
+        }
+        .input-panel {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.4);
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.02);
+        }
+        .kpi-card {
+    background: var(--bg-card);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+    transition: transform var(--transition-fast);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+.kpi-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+        .input-dropzone {
+            flex: 1;
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(255,255,255,0.5);
+        }
+        .input-dropzone:hover {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.05);
+        }
+        .story-dashboard {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            flex-shrink: 0;
+        }
+        .story-panel {
+            flex: 1;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            position: relative;
+            opacity: 0.4;
+            transition: all 0.5s ease;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+            filter: grayscale(100%);
+        }
+        .story-panel.active {
+            opacity: 1;
+            filter: grayscale(0%);
+            border-color: var(--primary);
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.15);
+            transform: translateY(-2px);
+        }
+        .story-panel.completed {
+            opacity: 1;
+            filter: grayscale(0%);
+            border-color: var(--success);
+        }
+        .story-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 0.75rem;
+        }
+        .story-badge {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        .story-panel.active .story-badge {
+            background: var(--primary);
+            color: white;
+        }
+        .story-panel.completed .story-badge {
+            background: var(--success);
+            color: white;
+        }
+        .story-header h4 {
+            margin: 0;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            flex: 1;
+        }
+        .story-status {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            background: var(--bg-secondary);
+            padding: 2px 8px;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+        .story-panel.active .story-status {
+            color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+            animation: pulse-border 1.5s infinite;
+        }
+        .story-panel.completed .story-status {
+            color: var(--success);
+            background: rgba(16, 185, 129, 0.1);
+        }
+        .story-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            padding-top: 1.5rem;
+        }
+        .story-placeholder {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-align: center;
+            margin: auto;
+        }
+        .data-item {
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+            transition: opacity 0.5s ease;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .ai-spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid rgba(59, 130, 246, 0.15);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        .ai-loading-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 0;
+            margin: auto;
+        }
+        .ai-loading-text {
+            color: var(--primary);
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-align: center;
+            min-height: 1.5rem;
+            transition: opacity 0.3s ease;
+        }
+        .log-line {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+            opacity: 0;
+            transform: translateY(5px);
+            transition: all 0.3s;
+        }
+        .log-line.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .story-content.pipeline {
+            padding-left: 1rem;
+            padding-bottom: 0.5rem;
+            position: relative;
+        }
+        .story-content.pipeline::before {
+            content: '';
+            position: absolute;
+            left: 1.875rem; 
+            top: 1rem;
+            bottom: 2rem;
+            width: 2px;
+            background: #cbd5e1;
+            z-index: 0;
+        }
+        .decision-point {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+            margin-bottom: 1.25rem;
+            opacity: 0;
+            transform: translateX(-10px);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 1;
+        }
+        .decision-point.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .decision-point .dp-icon {
+            min-width: 28px;
+            min-height: 28px;
+            width: 28px;
+            height: 28px;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #64748b;
+            background: #ffffff;
+            border: 2px solid #cbd5e1;
+            border-radius: 50%;
+            font-family: 'Inter', sans-serif;
+            flex-shrink: 0;
+            transition: all 0.5s;
+            position: relative;
+            z-index: 2;
+        }
+        .decision-point.show .dp-icon {
+            color: white;
+            background: #3b82f6;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+        }
+        .decision-point:nth-child(3).show .dp-icon {
+            background: #8b5cf6;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2);
+        }
+        .decision-point .dp-text {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            background: rgba(255,255,255,0.8);
+            padding: 0.6rem 0.8rem;
+            border-radius: 6px;
+            border: 1px solid #f1f5f9;
+            border-left: 4px solid transparent;
+            width: 100%;
+            transition: all 0.3s;
+        }
+        .decision-point.show .dp-text {
+            border-left-color: #3b82f6;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .decision-point:nth-child(3).show .dp-text {
+            border-left-color: #8b5cf6;
+            background: linear-gradient(to right, rgba(139, 92, 246, 0.05), rgba(255,255,255,0.8));
+        }
+        .decision-point .dp-text strong {
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+        .decision-point .dp-text span {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            70% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+
+        .input-actions {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        /* アラート用グローエフェクト（後光） */
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .c-card.urgent {
+            border: 1px solid rgba(239, 68, 68, 0.5);
+            animation: pulse-glow 2s infinite;
+            position: relative;
+        }
+        .c-card.urgent::after {
+            content: "🔥 納期直近";
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ef4444;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 20px;
+            box-shadow: 0 2px 8px rgba(239,68,68,0.4);
+            z-index: 10;
+        }
+        
+        .container-grid.list-view .c-card.urgent::after {
+            display: none;
+        }
+        
+        .list-urgent-badge {
+            background: #ef4444;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(239,68,68,0.3);
+            white-space: nowrap;
+            display: inline-block;
+        }
+
+        /* 新しいミクロ画面（モーダル）のレイアウト */
+        .workspace-modal {
+            display: flex;
+            height: calc(100vh - 100px);
+            gap: 1.5rem;
+            padding: 1.5rem;
+        }
+        .workspace-3d {
+            flex: 2;
+            background: #f8fafc;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .workspace-sidebar {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            overflow-y: hidden;
+        }
+        
+        /* 3Dモック */
+        .iso-container {
+            width: 400px;
+            height: 200px;
+            border: 2px dashed #94a3b8;
+            transform: rotateX(60deg) rotateZ(-45deg);
+            position: relative;
+            background: rgba(255,255,255,0.5);
+            backdrop-filter: blur(4px);
+            box-shadow: 20px 20px 40px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+        .iso-container:hover {
+            border-color: #3b82f6;
+            box-shadow: 20px 20px 60px rgba(59,130,246,0.15);
+        }
+        .iso-item {
+            width: 80px; height: 80px;
+            background: rgba(239, 68, 68, 0.8);
+            position: absolute;
+            bottom: 10px; left: 10px;
+            border: 1px solid #b91c1c;
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.2);
+            transition: all 0.3s;
+        }
+        .iso-item.pull { background: rgba(16, 185, 129, 0.8); border-color: #047857; left: 100px; }
+
+        /* タブとリスト */
+        .workspace-tabs {
+            display: flex;
+            gap: 1rem;
+            border-bottom: 2px solid #f1f5f9;
+            margin-bottom: 0.5rem;
+        }
+        .workspace-tab {
+            padding: 0.5rem 1rem;
+            font-weight: 700;
+            color: #64748b;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+        .workspace-tab.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+        .workspace-tab:hover:not(.active) {
+            color: #1e293b;
+        }
+
+        .drag-list {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        .drag-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.85rem 1rem;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            cursor: grab;
+            transition: all 0.2s;
+        }
+        .drag-item::before {
+            content: '⋮⋮';
+            color: #cbd5e1;
+            font-size: 1.2rem;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .drag-item:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
+            transform: translateY(-2px);
+        }
+        .drag-item.urgent { border-left: 4px solid #ef4444; }
+        .drag-item.pull { border-left: 4px solid #10b981; }
+        
+        .item-info { flex: 1; }
+        .item-title { font-weight: 700; color: #1e293b; font-size: 0.9rem; }
+        .item-meta { font-size: 0.75rem; color: #64748b; margin-top: 0.3rem; display: flex; gap: 0.5rem; align-items: center;}
+        .item-weight { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-weight: 600;}
+
+        .action-row {
+            margin-top: auto;
+            padding-top: 1rem;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <header class="app-header">
+            <div class="logo">ISUZU Vanning Optimizer <span style="font-size:0.8rem; background:#3b82f6; color:white; padding:2px 8px; border-radius:12px; margin-left:10px;">UIテスト版</span></div>
+        </header>
+
+        <main style="max-width: 1440px; width: 100%; margin: 0 auto; padding-top: 0.5rem; flex: 1; display: flex; flex-direction: column; overflow: hidden; padding-bottom: 1rem;">
+            
+            <!-- 上部: 最適化ストーリー (プログレッシブ開示) -->
+            <div class="story-dashboard">
+                <!-- Step 1: 現状 -->
+                <div class="story-panel" id="story-1">
+                    <div class="story-header">
+                        <div class="story-badge">1</div>
+                        <h4>読込と現状の課題</h4>
+                        <div class="story-status" id="status-1">待機中</div>
+                    </div>
+                    <div class="story-body">
+                        <div class="story-placeholder" id="placeholder-1">Excelファイルをドロップしてください</div>
+                        <div class="story-content" id="content-1" style="display:none;">
+                            <div class="data-item" style="font-size:0.9rem;">出荷対象: <strong id="val-items" style="color:var(--text-primary);">0</strong> 件 <span style="color:var(--text-muted); font-size:0.8rem;">(総体積: 約2,400m³)</span></div>
+                            <div class="data-item" style="opacity:0; margin-top:0.75rem;" id="step1-data1">
+                                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+                                    <div style="display:flex; flex-direction:column;">
+                                        <span style="font-size:0.85rem; color:var(--text-secondary);">純粋な体積からの理論最小値 <span style="font-size:0.75rem;">(40ft換算)</span>:</span>
+                                        <span style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">(2,400m³ ÷ 有効容積60m³ = 40)</span>
+                                    </div>
+                                    <span style="font-weight:bold; color:var(--text-primary); margin-top:2px;">40台</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-top:0.5rem;">
+                                    <div style="display:flex; flex-direction:column;">
+                                        <span style="font-size:0.85rem; color:var(--text-secondary);">予測コンテナ数（グリーディ法）:</span>
+                                        <span style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">(※納期・仕向け地順の単純割当 ＋ 従来の標準積載率で概算)</span>
+                                    </div>
+                                    <strong style="color:var(--danger); font-size:1.1rem; margin-top:2px;">55台</strong>
+                                </div>
+                            </div>
+                            <div class="data-item" style="opacity:0; font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem; background:rgba(239, 68, 68, 0.05); padding:0.5rem; border-radius:4px; border-left:3px solid var(--danger);" id="step1-data2">
+                                <span style="color:var(--danger); font-weight:bold;">警告: 理論値より15台オーバー</span><br>
+                                単純アルゴリズムによる計算のため、デッドスペースが蓄積しています
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 2: AIのアプローチ -->
+                <div class="story-panel" id="story-2">
+                    <div class="story-header">
+                        <div class="story-badge">2</div>
+                        <h4>ヒューリスティック最適化</h4>
+                        <div class="story-status" id="status-2">待機中</div>
+                    </div>
+                    <div class="story-body">
+                        <div class="story-placeholder" id="placeholder-2">データを待機しています</div>
+                        <div class="story-content pipeline" id="content-2" style="display:none; padding-right:5px;">
+                            <div class="decision-point" id="dp-1">
+                                <div class="dp-icon">1</div>
+                                <div class="dp-text">
+                                    <strong>空きスペースの徹底分析</strong>
+                                    <span>コンテナ内の無駄な空間を洗い出しています...</span>
+                                </div>
+                            </div>
+                            <div class="decision-point" id="dp-2">
+                                <div class="dp-icon">2</div>
+                                <div class="dp-text">
+                                    <strong>3Dパズル配置シミュレーション</strong>
+                                    <span>荷物を回転させ、最も隙間のない組み合わせを計算中...</span>
+                                </div>
+                            </div>
+                            <div class="decision-point" id="dp-3">
+                                <div class="dp-icon">3</div>
+                                <div class="dp-text">
+                                    <strong>最適な配置プランの発見</strong>
+                                    <span style="color:#7c3aed; font-weight:bold;">隙間を極限まで減らし、全量を【51台】に収めるプランが完成しました！</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Step 3: 最終結果 -->
+                <div class="story-panel" id="story-3">
+                    <div class="story-header">
+                        <div class="story-badge">3</div>
+                        <h4>最終結果（アルゴリズム比較）</h4>
+                        <div class="story-status" id="status-3">待機中</div>
+                    </div>
+                    <div class="story-body">
+                        <div class="story-placeholder" id="placeholder-3">最適化を待機しています</div>
+                        <div class="story-content" id="content-3" style="display:none;">
+                            <div style="text-align:center; margin-bottom: 1.25rem;">
+                                <div style="font-size: 1rem; color:var(--text-primary); font-weight:bold;">最適化による改善効果</div>
+                            </div>
+                            
+                            <div style="display:flex; flex-direction:column; gap:0.75rem;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; background:white; border:1px solid #e2e8f0; border-radius:6px; padding:0.8rem 1rem; box-shadow:0 1px 2px rgba(0,0,0,0.02);">
+                                    <div style="font-size:0.85rem; color:var(--text-secondary); font-weight:bold; white-space:nowrap;">手配コンテナ数</div>
+                                    <div style="display:flex; align-items:center; gap:0.5rem; white-space:nowrap;">
+                                        <span style="font-size:0.9rem; color:#94a3b8; text-decoration:line-through;">55台</span>
+                                        <span style="color:#cbd5e1; font-size:0.8rem;">➔</span>
+                                        <strong style="font-size:1.6rem; color:var(--primary); line-height:1;">51<span style="font-size:0.9rem; margin-left:2px;">台</span></strong>
+                                        <span style="background:var(--success); color:white; padding:3px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; margin-left:0.25rem;">4台削減</span>
+                                    </div>
+                                </div>
+
+                                <div style="display:flex; justify-content:space-between; align-items:center; background:white; border:1px solid #e2e8f0; border-radius:6px; padding:0.8rem 1rem; box-shadow:0 1px 2px rgba(0,0,0,0.02);">
+                                    <div style="font-size:0.85rem; color:var(--text-secondary); font-weight:bold; white-space:nowrap;">平均充填率 (実体積)</div>
+                                    <div style="display:flex; align-items:center; gap:0.5rem; white-space:nowrap;">
+                                        <span style="font-size:0.9rem; color:#94a3b8;">約70%</span>
+                                        <span style="color:#cbd5e1; font-size:0.8rem;">➔</span>
+                                        <strong style="font-size:1.6rem; color:var(--success); line-height:1;">86.4<span style="font-size:0.9rem; margin-left:2px;">%</span></strong>
+                                        <span style="color:var(--success); font-size:0.75rem; font-weight:bold; margin-left:0.25rem;">高密度積載</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 下部: ワークスペース (サイドバー + メイン画面) -->
+            <div class="workspace-layout" style="display: grid; grid-template-columns: 320px 1fr; gap: 1.5rem; align-items: stretch; overflow: hidden; flex: 1;">
+                
+                <!-- 左サイドバー (コントロールパネル) -->
+                <div class="sidebar" style="overflow-y: auto;">
+                    <div class="input-panel" style="flex-direction: column; padding: 1rem; gap: 1rem;">
+                        <div class="input-dropzone">
+                            <div style="font-size:1.5rem; margin-bottom:0.25rem;">🗂️</div>
+                            <strong>出荷指示書（Excel）をドロップ</strong>
+                            <div style="font-size:0.8rem; margin-top:0.5rem;">読込完了: 1,240件 (06/01 - 06/15)</div>
+                        </div>
+                        <div class="input-actions" style="display:flex; flex-direction:column; gap:1rem;">
+                            <div class="field">
+                                <label>基準日（この日以降の荷物を前倒し候補とする）</label>
+                                <div class="date-field-group">
+                                    <input type="date" value="2026-06-01" style="width:100%;">
+                                </div>
+                            </div>
+                            <button class="btn-primary" style="width:100%;" onclick="startStorySimulation()">📊 最適化を実行</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右メインエリア (コンテナリスト) -->
+                <div class="step-panel active" style="overflow-y: auto; display: flex; flex-direction: column; padding-right: 0.5rem;">
+                    <div style="margin: 0 0 1rem; display:flex; justify-content:space-between; align-items:flex-end; position: sticky; top: 0; background: var(--bg-primary); z-index: 20; padding-bottom: 10px;">
+                        <div style="display:flex; flex-direction:column; gap: 0.75rem;">
+                            <h3 style="margin:0; color:#1e293b; font-size:1.1rem;">コンテナ一覧 <span style="font-size:0.85rem; font-weight:normal; color:#64748b; margin-left:10px;">納期（CYカット）が近い順</span></h3>
+                            <div class="filter-bar" style="display: flex; gap: 0.5rem;">
+                                <button class="filter-btn active" onclick="filterCards('all', this)" style="background:var(--bg-primary); border:1px solid #3b82f6; color:#3b82f6; border-radius:99px; padding:0.3rem 0.8rem; font-size:0.8rem; font-weight:bold; cursor:pointer;">すべて表示 (3)</button>
+                                <button class="filter-btn" onclick="filterCards('must-ship', this)" style="background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:99px; padding:0.3rem 0.8rem; font-size:0.8rem; font-weight:bold; cursor:pointer;">出荷必須 (1)</button>
+                                <button class="filter-btn" onclick="filterCards('ok', this)" style="background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:99px; padding:0.3rem 0.8rem; font-size:0.8rem; font-weight:bold; cursor:pointer;">出荷OK (2)</button>
+                                <button class="filter-btn" onclick="filterCards('delay', this)" style="background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:99px; padding:0.3rem 0.8rem; font-size:0.8rem; font-weight:bold; cursor:pointer;">見送り候補 (0)</button>
+                            </div>
+                        </div>
+                        <button class="btn-ghost" style="padding: 6px 12px; font-size: 0.85rem;">📋 全コンテナ出力 (Excel)</button>
+                    </div>
+
+                <!-- Container Grid (Permanently set to List View) -->
+                <div class="container-grid list-view">
+                    
+                    <!-- 納期直近（必須）カード -->
+                    <div class="c-card must-ship" onclick="document.getElementById('modal-test').style.display='flex'">
+                        <div class="c-head">
+                            <div class="c-num">
+                                <span style="font-weight:bold; white-space:nowrap; font-size:1.1rem; color:var(--text-primary);">C-005</span>
+                                <span style="font-size:0.7rem; background:#fef2f2; color:#ef4444; padding:2px 6px; border-radius:4px; margin-top:4px; white-space:nowrap;">納期: 06/02</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                                <span class="c-badge" style="background:#ef4444; color:white; border:none; white-space:nowrap; padding:4px 10px;">出荷必須（納期直近あり）</span>
+                            </div>
+                        </div>
+                        <div class="fill-bar-wrap">
+                            <div class="fill-bar-labels"><span>積載効率</span><span class="fill-pct" style="color:#ef4444;">62.1%</span></div>
+                            <div class="fill-bar-track">
+                                <div class="fill-bar-fill alert" style="width:62.1%"></div>
+                                <div class="fill-bar-target"></div>
+                            </div>
+                        </div>
+                        <div class="c-stats-grid">
+                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val alert">62.1<small>%</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">12,450<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">8<small>個</small></div></div>
+                        </div>
+                        <div style="margin-top:1rem; text-align:center; color:#64748b; font-size:0.85rem; font-weight:600;">
+                            👆 クリックして個別作業を開く
+                        </div>
+                    </div>
+
+                    <!-- 正常カード -->
+                    <div class="c-card ok" onclick="document.getElementById('modal-test').style.display='flex'">
+                        <div class="c-head">
+                            <div class="c-num">
+                                <span style="font-weight:bold; white-space:nowrap; font-size:1.1rem; color:var(--text-primary);">C-001</span>
+                                <span style="font-size:0.7rem; background:#f8fafc; color:#64748b; padding:2px 6px; border-radius:4px; margin-top:4px; white-space:nowrap;">納期: 06/03</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                                <span class="c-badge ok" style="white-space:nowrap;">出荷可</span>
+                            </div>
+                        </div>
+                        <div class="fill-bar-wrap">
+                            <div class="fill-bar-labels"><span>積載効率</span><span class="fill-pct">88.5%</span></div>
+                            <div class="fill-bar-track">
+                                <div class="fill-bar-fill ok" style="width:88.5%"></div>
+                                <div class="fill-bar-target"></div>
+                            </div>
+                        </div>
+                        <div class="c-stats-grid">
+                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ok">88.5<small>%</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">22,100<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">24<small>個</small></div></div>
+                        </div>
+                    </div>
+
+                    <!-- 前倒しカード -->
+                    <div class="c-card ok" onclick="document.getElementById('modal-test').style.display='flex'">
+                        <div class="c-head">
+                            <div class="c-num">
+                                <span style="font-weight:bold; white-space:nowrap; font-size:1.1rem; color:var(--text-primary);">C-002</span>
+                                <span style="font-size:0.7rem; background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; margin-top:4px; white-space:nowrap;">納期: 06/03</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                                <span class="c-badge ok" style="white-space:nowrap;">✨ 出荷可（前倒し適用）</span>
+                            </div>
+                        </div>
+                        <div class="c-reason pull" style="margin-bottom:1rem;">前倒し候補から18個を追加し、目標の80%を達成</div>
+                        <div class="fill-bar-wrap">
+                            <div class="fill-bar-labels"><span>積載効率</span><span class="fill-pct" style="color:#10b981;">81.2%</span></div>
+                            <div class="fill-bar-track">
+                                <div class="fill-bar-fill ok" style="width:81.2%"></div>
+                                <div class="fill-bar-target"></div>
+                            </div>
+                        </div>
+                        <div class="c-stats-grid">
+                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ok">81.2<small>%</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">19,800<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">18<small>個</small></div></div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+
+        <!-- ミクロ画面（個別作業ワークスペース）モック -->
+        <div class="modal-overlay" id="modal-test" style="display:none; padding: 2rem;">
+            <div class="modal-content" style="max-width: 1400px; height: 100%; display:flex; flex-direction:column;">
+                <div class="modal-header">
+                    <div>
+                        <h3 style="margin:0; font-size:1.2rem;">C-005 <span style="font-weight:normal; font-size:0.9rem; color:#64748b; margin-left:10px;">個別作業ワークスペース</span></h3>
+                    </div>
+                    <div class="legend">
+                        <span><span style="color:#3b82f6;">■</span> 通常</span>
+                        <span><span style="color:#10b981;">■</span> 空き埋め</span>
+                        <span><span style="color:#ef4444;">■</span> 強制出荷</span>
+                    </div>
+                    <button class="modal-close" onclick="document.getElementById('modal-test').style.display='none'">&times;</button>
+                </div>
+                
+                <div class="workspace-modal">
+                    <!-- 左：3Dプレビュー -->
+                    <div class="workspace-3d">
+                        <div style="position:absolute; top:20px; right:20px; display:flex; gap:10px;">
+                            <button class="btn-ghost" style="background:white; font-size: 0.8rem; padding: 6px 12px;">🔄 視点リセット</button>
+                            <button class="btn-ghost" style="background:white; font-size: 0.8rem; padding: 6px 12px;">👁️ 透過モード</button>
+                        </div>
+                        
+                        <div class="iso-container">
+                            <span style="color:#94a3b8; font-weight:700; font-size:1.5rem; position:absolute; top:-30px;">C-005 Area</span>
+                            <div class="iso-item"></div>
+                            <div class="iso-item pull"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 右：荷物リスト＆操作 -->
+                    <div class="workspace-sidebar">
+                        <div class="workspace-tabs">
+                            <div class="workspace-tab active">搭載済み (8)</div>
+                            <div class="workspace-tab">未積載 / 候補 (124)</div>
+                        </div>
+                        
+                        <div class="drag-list">
+                            <!-- Drag Item 1 -->
+                            <div class="drag-item urgent">
+                                <div class="item-info">
+                                    <div class="item-title">ENG-A01 (エンジンブロック)</div>
+                                    <div class="item-meta">
+                                        <span class="item-weight">1,200kg</span>
+                                        <span style="color:#ef4444; font-weight:bold;">納期: 06/02</span>
+                                    </div>
+                                </div>
+                                <button class="btn-ghost" style="padding:4px 8px; font-size:0.75rem;">外す</button>
+                            </div>
+                            
+                            <!-- Drag Item 2 -->
+                            <div class="drag-item urgent">
+                                <div class="item-info">
+                                    <div class="item-title">ENG-A02 (エンジンブロック)</div>
+                                    <div class="item-meta">
+                                        <span class="item-weight">1,200kg</span>
+                                        <span style="color:#ef4444; font-weight:bold;">納期: 06/02</span>
+                                    </div>
+                                </div>
+                                <button class="btn-ghost" style="padding:4px 8px; font-size:0.75rem;">外す</button>
+                            </div>
+
+                            <!-- Drag Item 3 -->
+                            <div class="drag-item">
+                                <div class="item-info">
+                                    <div class="item-title">PT-X99 (トランスミッション)</div>
+                                    <div class="item-meta">
+                                        <span class="item-weight">850kg</span>
+                                        <span>納期: 06/03</span>
+                                    </div>
+                                </div>
+                                <button class="btn-ghost" style="padding:4px 8px; font-size:0.75rem;">外す</button>
+                            </div>
+                            <div class="drag-item pull">
+                                <div class="item-info">
+                                    <div class="item-title">AXL-F01 (フロントアクスル)</div>
+                                    <div class="item-meta">
+                                        <span class="item-weight">450kg</span>
+                                        <span style="color:#10b981;">空き埋め追加</span>
+                                    </div>
+                                </div>
+                                <button class="btn-ghost" style="padding:4px 8px; font-size:0.75rem;">外す</button>
+                            </div>
+                        </div>
+                        
+                        <div class="dropzone-mock" style="margin-top:0.5rem; padding:1rem; background:#f8fafc; border:2px dashed #cbd5e1; border-radius:8px; text-align:center; color:#64748b; font-size:0.85rem; cursor:pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='#3b82f6'; this.style.backgroundColor='#eff6ff';" onmouseout="this.style.borderColor='#cbd5e1'; this.style.backgroundColor='#f8fafc';" onclick="simulateOverload()">
+                            ➕ ここに「未積載リスト」から荷物をドロップ（テスト）
+                        </div>
+                        
+                        <div class="action-row">
+                            <button class="btn-ghost">変更を破棄</button>
+                            <button class="btn-primary" id="confirm-btn-mock" style="background:#10b981;">📋 確定して指示書出力</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script>
+            function filterCards(type, btnElem) {
+                // Update button active states
+                document.querySelectorAll('.filter-btn').forEach(btn => {
+                    btn.classList.remove('active');
+                    btn.style.background = 'transparent';
+                    btn.style.borderColor = '#cbd5e1';
+                });
+                btnElem.classList.add('active');
+                if(type === 'all') {
+                    btnElem.style.background = 'var(--bg-primary)';
+                    btnElem.style.borderColor = '#3b82f6';
+                } else if(type === 'must-ship') {
+                    btnElem.style.background = '#fef2f2';
+                    btnElem.style.borderColor = '#ef4444';
+                    btnElem.style.color = '#dc2626';
+                } else if(type === 'ok') {
+                    btnElem.style.background = '#f0fdf4';
+                    btnElem.style.borderColor = 'var(--success)';
+                    btnElem.style.color = '#16a34a';
+                } else if(type === 'delay') {
+                    btnElem.style.background = '#fffbeb';
+                    btnElem.style.borderColor = 'var(--warning)';
+                    btnElem.style.color = '#d97706';
+                }
+
+                // Filter cards
+                const cards = document.querySelectorAll('.container-grid .c-card');
+                cards.forEach(card => {
+                    if (type === 'all') {
+                        card.style.display = '';
+                    } else if (type === 'must-ship') {
+                        card.style.display = card.classList.contains('must-ship') ? '' : 'none';
+                    } else if (type === 'ok') {
+                        card.style.display = card.classList.contains('ok') ? '' : 'none';
+                    } else if (type === 'delay') {
+                        card.style.display = card.classList.contains('delay') ? '' : 'none';
+                    }
+                });
+            }
+
+            function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+            
+            async function startStorySimulation() {
+                const containerList = document.querySelector('.step-panel');
+                containerList.style.transition = 'opacity 0.3s ease';
+                containerList.style.opacity = '0.1';
+                containerList.style.pointerEvents = 'none';
+
+                [1,2,3].forEach(i => {
+                    document.getElementById('story-'+i).className = 'story-panel';
+                    document.getElementById('content-'+i).style.display = 'none';
+                    document.getElementById('placeholder-'+i).style.display = 'block';
+                    document.getElementById('status-'+i).innerText = '待機中';
+                });
+                document.querySelectorAll('.decision-point').forEach(el => el.classList.remove('show'));
+                document.getElementById('step1-data1').style.opacity = '0';
+                document.getElementById('step1-data2').style.opacity = '0';
+
+                // --- STEP 1 ---
+                const p1 = document.getElementById('story-1');
+                p1.classList.add('active');
+                document.getElementById('status-1').innerText = '解析中...';
+                document.getElementById('placeholder-1').style.display = 'none';
+                document.getElementById('content-1').style.display = 'block';
+                
+                for(let i=0; i<=880; i+=88) {
+                    document.getElementById('val-items').innerText = i.toLocaleString();
+                    await sleep(50);
+                }
+                await sleep(300);
+                document.getElementById('step1-data1').style.opacity = '1';
+                await sleep(500);
+                document.getElementById('step1-data2').style.opacity = '1';
+                
+                p1.classList.remove('active');
+                p1.classList.add('completed');
+                document.getElementById('status-1').innerText = '完了';
+
+                // --- STEP 2 ---
+                await sleep(400);
+                const p2 = document.getElementById('story-2');
+                p2.classList.add('active');
+                document.getElementById('status-2').innerText = '思考中...';
+                
+                // Show dynamic spinner
+                const ph2 = document.getElementById('placeholder-2');
+                ph2.innerHTML = `
+                    <div class="ai-loading-container">
+                        <div class="ai-spinner"></div>
+                        <div class="ai-loading-text" id="ai-loading-text">空間データを解析中...</div>
+                    </div>
+                `;
+                
+                const aiTexts = [
+                    "空間データを解析中...",
+                    "デッドスペースの境界を計算中...",
+                    "3Dパズル配置シミュレーションを実行中...",
+                    "数万通りのパターンから最適解を探索中...",
+                    "局所最適を脱出し、さらなる高密度配置を計算中...",
+                    "最終的な積載プランを生成中..."
+                ];
+                let textIdx = 0;
+                const textInterval = setInterval(() => {
+                    textIdx = (textIdx + 1) % aiTexts.length;
+                    const textEl = document.getElementById('ai-loading-text');
+                    if(textEl) {
+                        textEl.style.opacity = 0;
+                        setTimeout(() => {
+                            if(textEl) {
+                                textEl.innerText = aiTexts[textIdx];
+                                textEl.style.opacity = 1;
+                            }
+                        }, 300);
+                    }
+                }, 1600);
+
+                // Simulate heavy processing time
+                await sleep(9600); 
+                clearInterval(textInterval);
+
+                // Hide spinner, show pipeline summary
+                ph2.style.display = 'none';
+                document.getElementById('content-2').style.display = 'flex';
+                document.getElementById('content-2').style.flexDirection = 'column';
+
+                await sleep(300);
+                document.getElementById('dp-1').classList.add('show');
+                await sleep(600);
+                document.getElementById('dp-2').classList.add('show');
+                await sleep(800); 
+                document.getElementById('dp-3').classList.add('show');
+                
+                await sleep(500);
+                p2.classList.remove('active');
+                p2.classList.add('completed');
+                document.getElementById('status-2').innerText = '完了';
+
+                // --- STEP 3 ---
+                await sleep(400);
+                const p3 = document.getElementById('story-3');
+                p3.classList.add('active');
+                document.getElementById('status-3').innerText = '確定！';
+                document.getElementById('placeholder-3').style.display = 'none';
+                document.getElementById('content-3').style.display = 'block';
+
+                await sleep(800); 
+                p3.classList.remove('active');
+                p3.classList.add('completed');
+                document.getElementById('status-3').innerText = '完了';
+
+                document.getElementById('modal-test').style.display = 'none';
+                
+                await sleep(300);
+                containerList.style.transition = 'opacity 1s ease';
+                containerList.style.opacity = '1';
+                containerList.style.pointerEvents = 'auto';
+            }
+
+            function simulateOverload() {
+                // 1. Add alert banner
+                const tabs = document.querySelector('.workspace-tabs');
+                if(!document.querySelector('.alert-banner')) {
+                    const banner = document.createElement('div');
+                    banner.className = 'alert-banner';
+                    banner.innerHTML = '⚠️ 容積オーバー (105%) - エラーを解消するまで確定できません';
+                    tabs.parentNode.insertBefore(banner, tabs.nextSibling);
+                }
+
+                // 2. Add overflowing item to list
+                const list = document.querySelector('.drag-list');
+                const item = document.createElement('div');
+                item.className = 'drag-item over-item';
+                item.style.borderLeft = '4px solid #ef4444';
+                item.style.backgroundColor = '#fef2f2';
+                item.innerHTML = `
+                    <div class="item-info">
+                        <div class="item-title" style="color:#b91c1c;">ENG-A03 (エンジンブロック)</div>
+                        <div class="item-meta">
+                            <span class="item-weight">1,200kg</span>
+                            <span style="color:#ef4444; font-weight:bold;">手動追加（超過）</span>
+                        </div>
+                    </div>
+                    <button class="btn-ghost" style="padding:4px 8px; font-size:0.75rem; color:#ef4444;" onclick="undoOverload(this)">外す</button>
+                `;
+                list.appendChild(item);
+
+                // 3. Update 3D View
+                if(!document.getElementById('iso-overflow')) {
+                    const iso = document.querySelector('.iso-container');
+                    const isoItem = document.createElement('div');
+                    isoItem.className = 'iso-item overflow';
+                    isoItem.id = 'iso-overflow';
+                    iso.appendChild(isoItem);
+                }
+
+                // 4. Disable confirm button
+                const confirmBtn = document.getElementById('confirm-btn-mock');
+                confirmBtn.className = 'btn-primary btn-disabled';
+                confirmBtn.innerHTML = '🚫 エラーのため確定不可';
+                
+                // Disable dropzone click temporarily
+                document.querySelector('.dropzone-mock').onclick = null;
+            }
+
+            function undoOverload(btn) {
+                // Remove list item
+                btn.parentNode.remove();
+                
+                // Remove banner and 3D item
+                const banner = document.querySelector('.alert-banner');
+                if(banner) banner.remove();
+                const isoItem = document.getElementById('iso-overflow');
+                if(isoItem) isoItem.remove();
+                
+                // Restore button
+                const confirmBtn = document.getElementById('confirm-btn-mock');
+                confirmBtn.className = 'btn-primary';
+                confirmBtn.style.background = '#10b981';
+                confirmBtn.innerHTML = '📋 確定して指示書出力';
+                
+                // Restore dropzone functionality
+                document.querySelector('.dropzone-mock').onclick = simulateOverload;
+            }
+        </script>
+    </div>
+</body>
+</html>

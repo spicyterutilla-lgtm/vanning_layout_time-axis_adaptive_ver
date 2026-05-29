@@ -339,7 +339,9 @@ function renderDashboard(data) {
         });
 
         const card = document.createElement('div');
+        const filterStatus = isAlert ? 'alert' : 'ok';
         card.className = `c-card ${statusClass}`;
+        card.setAttribute('data-filter-status', filterStatus);
         card.innerHTML = `
             <div class="c-head">
                 <div class="c-num">${esc(c.id)}</div>
@@ -386,6 +388,46 @@ function renderDashboard(data) {
 
         grid.appendChild(card);
     });
+
+    // Update Filter counts
+    const okCount = data.containers.length - alertCount;
+    document.getElementById('filter-count-all').textContent = data.containers.length;
+    document.getElementById('filter-count-alert').textContent = alertCount;
+    document.getElementById('filter-count-ok').textContent = okCount;
+    
+    // Ensure filter bar is visible if there are containers
+    const filterBar = document.getElementById('filter-bar');
+    if (filterBar && data.containers.length > 0) {
+        filterBar.style.display = 'flex';
+        // Initialize filter bindings if not already done
+        if (!filterBar.dataset.bound) {
+            filterBar.dataset.bound = "true";
+            const btns = filterBar.querySelectorAll('.filter-btn');
+            btns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    // Update active state
+                    btns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    // Apply filter
+                    const filterVal = btn.getAttribute('data-filter');
+                    const cards = document.querySelectorAll('.c-card');
+                    cards.forEach(c => {
+                        if (filterVal === 'all') {
+                            c.style.display = '';
+                        } else {
+                            if (c.getAttribute('data-filter-status') === filterVal) {
+                                c.style.display = '';
+                            } else {
+                                c.style.display = 'none';
+                            }
+                        }
+                    });
+                });
+            });
+        }
+        // Force 'all' filter on initial render
+        filterBar.querySelector('[data-filter="all"]').click();
+    }
 }
 
 // =====================

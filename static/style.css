@@ -45,7 +45,7 @@ html, body {
     overflow: hidden;
 }
 body {
-    font-family: 'Inter', 'Meiryo', 'Hiragino Sans', sans-serif;
+    font-family: 'Inter', 'BIZ UDPGothic', 'Hiragino Sans', 'Meiryo', sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.6;
@@ -663,6 +663,49 @@ body {
 .badge.alert { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
 .badge.ok { background: #dcfce7; color: #16a34a; border: 1px solid #86efac; }
 .badge strong { margin: 0 0.2rem; font-size: 1.05em; }
+
+/* --- Filter Bar --- */
+.filter-bar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+.filter-btn {
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: 99px;
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.filter-btn:hover {
+    background: rgba(226, 232, 240, 0.5);
+    color: var(--text-primary);
+}
+.filter-btn.active {
+    background: var(--bg-primary);
+    border-color: var(--text-primary);
+    color: var(--text-primary);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+.filter-btn.active.warning { border-color: var(--warning); color: #92400e; background: #fffbeb; }
+.filter-btn.active.success { border-color: var(--success); color: #166534; background: #f0fdf4; }
+.filter-count {
+    background: rgba(148, 163, 184, 0.2);
+    padding: 0.1rem 0.5rem;
+    border-radius: 99px;
+    font-size: 0.8rem;
+}
+.filter-btn.active .filter-count {
+    background: rgba(0,0,0,0.1);
+}
 
 /* --- Container Grid --- */
 .container-grid {
