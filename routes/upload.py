@@ -1,10 +1,9 @@
 import os
 import uuid
 import pandas as pd
-import json
 from io import BytesIO
 from flask import request, jsonify, send_file
-from services.session import SESSION_DATA, clear_last_results, ALLOWED_EXTENSIONS, SIMULATION_ASSUMPTIONS_FILE
+from services.session import SESSION_DATA, ALLOWED_EXTENSIONS, SIMULATION_ASSUMPTIONS_FILE
 from services.validation import validate_items, build_validation_summary, build_data_readiness
 from services.simulation import (
     read_generation_parameters, build_simulation_context,
@@ -22,6 +21,19 @@ def build_upload_path(upload_folder, original_filename):
         raise ValueError("Excelファイル（.xlsx / .xls）のみアップロードできます")
     return os.path.join(upload_folder, f"{uuid.uuid4().hex}{ext}")
 
+def _upload_response(items, validation_issues, invalid_item_ids, input_profile, simulation_context):
+    readiness = build_data_readiness(input_profile, validation_issues)
+    return jsonify({
+        'message': 'Success',
+        'total_items': len(items),
+        'valid_items': len(items) - len(invalid_item_ids),
+        'invalid_items': len(invalid_item_ids),
+        'validation_summary': build_validation_summary(validation_issues),
+        'validation_issues': validation_issues[:8],
+        'readiness': readiness,
+        'simulation_context': simulation_context,
+    })
+
 def handle_upload(app):
     if 'file' not in request.files:
         return jsonify({'error': 'ファイルがありません'}), 400
@@ -34,38 +46,33 @@ def handle_upload(app):
         file.save(filepath)
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
-    
+
     loader = DataLoader()
     try:
         items = loader.load_from_excel(filepath)
+        loader.input_profile["source_filename"] = file.filename
         validation_issues, invalid_item_ids = validate_items(items)
-        clear_last_results()
+        generation_parameters = read_generation_parameters(filepath)
+        simulation_context = build_simulation_context(
+            items,
+            loader.input_profile,
+            generation_parameters,
+            source_filename=file.filename,
+        )
+        # セッションに直接保存
         SESSION_DATA["items"] = items
         SESSION_DATA["validation_issues"] = validation_issues
         SESSION_DATA["invalid_item_ids"] = invalid_item_ids
         SESSION_DATA["input_profile"] = loader.input_profile
-        generation_parameters = read_generation_parameters(filepath)
-        simulation_context = build_simulation_context(items, loader.input_profile, generation_parameters)
         SESSION_DATA["simulation_context"] = simulation_context
-        readiness = build_data_readiness(loader.input_profile, validation_issues)
-        
-        target_count = len(items[:20])
-        future_count = len(items[20:])
-        
-        return jsonify({
-            'message': 'Success',
-            'total_items': len(items),
-            'valid_items': len(items) - len(invalid_item_ids),
-            'invalid_items': len(invalid_item_ids),
-            'target_count': target_count,
-            'future_count': future_count,
-            'validation_summary': build_validation_summary(validation_issues),
-            'validation_issues': validation_issues[:8],
-            'readiness': readiness,
-            'simulation_context': simulation_context
-        })
+        return _upload_response(items, validation_issues, invalid_item_ids, loader.input_profile, simulation_context)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    finally:
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
 
 def handle_status():
     items = SESSION_DATA.get("items", [])
@@ -77,26 +84,9 @@ def handle_status():
             'validation_summary': build_validation_summary(validation_issues),
             'validation_issues': validation_issues[:8],
             'readiness': build_data_readiness(SESSION_DATA.get("input_profile", {}), validation_issues),
-            'simulation_context': SESSION_DATA.get("simulation_context")
+            'simulation_context': SESSION_DATA.get("simulation_context"),
         })
     return jsonify({'has_data': False})
-
-
-
-def assumptions_api():
-    project_root = os.path.dirname(os.path.dirname(__file__))
-    assumptions_path = os.path.join(project_root, SIMULATION_ASSUMPTIONS_FILE)
-    assumptions = load_simulation_assumptions(assumptions_path)
-
-    if request.method == 'POST':
-        with open(assumptions_path, "w", encoding="utf-8") as handle:
-            json.dump(assumptions, handle, ensure_ascii=False, indent=2)
-
-    return jsonify({
-        "class_weights": assumptions.get("class_weights", {}),
-        "density_ranges": assumptions.get("density_ranges", {}),
-        "arrival_distribution": assumptions.get("arrival_distribution", []),
-    })
 
 def download_template():
     row_count = request.args.get("rows", default=800, type=int)
