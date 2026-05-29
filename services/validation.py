@@ -189,8 +189,9 @@ def classify_items_for_day(items, current_date, must_ship_window_days=7):
     }
 
     for item in items:
-        if item.creation_date > current_date:
-            item.selection_reason = "未到着"
+        # 荷物の到着予定日が積込ウィンドウの期限（船積日）よりも後であれば、今回の計画には含めない
+        if item.creation_date > target_date_limit:
+            item.selection_reason = "未到着(期限後)"
             groups["future"].append(item)
             continue
 
@@ -215,7 +216,14 @@ def classify_items_for_day(items, current_date, must_ship_window_days=7):
     return groups
 
 def build_constraint_tags(item):
-    return []
+    tags = []
+    if not item.stackable:
+        tags.append("上積み厳禁")
+    if item.floor_only:
+        tags.append("床面配置限定")
+    if not item.rotation_allowed:
+        tags.append("水平回転不可")
+    return tags
 
 def nearest_deadline(item):
     candidates = [item.due_date]

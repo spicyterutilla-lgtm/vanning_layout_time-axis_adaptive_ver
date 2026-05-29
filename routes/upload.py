@@ -21,8 +21,29 @@ def build_upload_path(upload_folder, original_filename):
         raise ValueError("Excelファイル（.xlsx / .xls）のみアップロードできます")
     return os.path.join(upload_folder, f"{uuid.uuid4().hex}{ext}")
 
+import math
+
 def _upload_response(items, validation_issues, invalid_item_ids, input_profile, simulation_context):
     readiness = build_data_readiness(input_profile, validation_issues)
+    
+    # Calculate baseline stats for Step 1 narrative
+    total_volume_m3 = 0
+    for item in items:
+        # volume = width * length * height (in mm) / 1,000,000,000
+        w = 0 if item.width is None or math.isnan(item.width) else item.width
+        l = 0 if item.length is None or math.isnan(item.length) else item.length
+        h = 0 if item.height is None or math.isnan(item.height) else item.height
+        vol = (w * l * h) / 1_000_000_000
+        total_volume_m3 += vol
+
+    if math.isnan(total_volume_m3):
+        total_volume_m3 = 0
+
+    theoretical_min = int(total_volume_m3 / 60.0) if total_volume_m3 > 0 else 0
+    theoretical_min = max(1, theoretical_min) if total_volume_m3 > 0 else 0
+    greedy_estimate = int(total_volume_m3 / 40.0) if total_volume_m3 > 0 else 0
+    greedy_estimate = max(1, greedy_estimate) if total_volume_m3 > 0 else 0
+
     return jsonify({
         'message': 'Success',
         'total_items': len(items),
@@ -32,6 +53,11 @@ def _upload_response(items, validation_issues, invalid_item_ids, input_profile, 
         'validation_issues': validation_issues[:8],
         'readiness': readiness,
         'simulation_context': simulation_context,
+        'baseline_stats': {
+            'total_volume_m3': round(total_volume_m3, 1),
+            'theoretical_min': theoretical_min,
+            'greedy_estimate': greedy_estimate
+        }
     })
 
 def handle_upload(app):

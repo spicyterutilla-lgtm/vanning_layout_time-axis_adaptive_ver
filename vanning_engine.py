@@ -227,6 +227,7 @@ class VanningEngine:
     def _basic_sort_prefix(self, item: Item):
         return (
             not item.force_ship,
+            item.destination, # 配送先でグループ化（奥から詰めるための疑似LIFO/FIFO）
             -item.weight,
         )
 
@@ -372,17 +373,27 @@ class VanningEngine:
 
     def _packing_result_score(self, containers: List[Container], unpacked_items: List[Item]):
         if not containers:
-            return (len(unpacked_items), 0, 0, 0, 0, 0, 0)
+            return (len(unpacked_items), 0, 0, 0, 0, 0, 0, 0)
 
         alert_count = sum(1 for c in containers if c.fill_rate_volume < VOLUME_TARGET_RATE)
         soft_weight_count = sum(1 for c in containers if c.fill_rate_weight >= WEIGHT_SOFT_LIMIT_RATE)
         volume_deficit = sum(max(0.0, VOLUME_TARGET_RATE - c.fill_rate_volume) for c in containers)
         avg_volume = sum(c.fill_rate_volume for c in containers) / len(containers)
         max_weight_rate = max(c.fill_rate_weight for c in containers)
+        
+        import math
+        cg_penalty = 0.0
+        for c in containers:
+            cg_x, cg_y, _ = c.compute_cg()
+            if cg_x is not None and cg_y is not None:
+                cg_dist = math.sqrt((cg_x - c.length/2)**2 + (cg_y - c.width/2)**2)
+                if cg_dist > 300.0:
+                    cg_penalty += (cg_dist - 300.0)
 
         return (
             len(unpacked_items),
             alert_count,
+            round(cg_penalty, 2), # 重心違反ペナルティ（小さいほど良い）
             len(containers),
             soft_weight_count,
             round(volume_deficit, 4),

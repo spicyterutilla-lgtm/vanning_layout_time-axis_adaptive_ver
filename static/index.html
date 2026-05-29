@@ -4,175 +4,994 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>いすゞ KDバンニングシミュレーター</title>
-    <meta name="description" content="コンテナ積載最適化シミュレーター。積込期限を守りながら体積充填率80%以上を目標にするバンニングレイアウト。">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=2">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        /* UIテスト用の追加・上書きスタイル */
+        .story-dashboard {
+            gap: 1rem !important;
+            margin-bottom: 1rem !important;
+        }
+        .story-panel {
+            padding: 1rem !important;
+        }
+
+        /* 折りたたみ機能のスタイル */
+        .story-dashboard {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+        .story-body {
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            max-height: 800px;
+            opacity: 1;
+            overflow: hidden;
+            transform-origin: top;
+        }
+        .story-dashboard.collapsed .story-body {
+            max-height: 0;
+            opacity: 0;
+            padding: 0;
+            margin: 0;
+        }
+        .story-dashboard.collapsed .story-panel {
+            padding: 0.75rem 1rem !important;
+            gap: 0 !important;
+            background: rgba(255, 255, 255, 0.7);
+        }
+        .story-dashboard.collapsed .story-header h4 {
+            font-size: 0.95rem;
+        }
+        .story-dashboard.collapsed {
+            margin-bottom: 0.5rem !important;
+            gap: 0.5rem !important;
+        }
+        
+        .collapse-toggle-btn {
+            position: absolute;
+            top: 0;
+            right: 10px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s;
+            z-index: 10;
+        }
+        .collapse-toggle-btn:hover {
+            color: var(--text-primary);
+        }
+        .collapse-toggle-btn .icon {
+            transition: transform 0.4s;
+        }
+        .story-dashboard.collapsed .collapse-toggle-btn .icon {
+            transform: rotate(180deg);
+        }
+
+        body {
+            font-family: 'Inter', 'Noto Sans JP', 'Hiragino Sans', 'Meiryo', sans-serif !important;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            letter-spacing: 0.03em;
+        }
+        
+        /* 統合されたヘッダー（ステップ排除） */
+        .app-header {
+            justify-content: center; /* ロゴを中央に */
+        }
+        .stepper { display: none; }
+
+        /* 統合された入力エリア */
+        .story-status {
+            font-size: 0.8rem;
+            padding: 2px 8px;
+            border-radius: 99px;
+            background: rgba(100, 116, 139, 0.1);
+            color: var(--text-secondary);
+        }
+        .alert-banner {
+            background: #fef2f2;
+            color: #ef4444;
+            border: 1px solid #f87171;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            animation: fadeSlideIn 0.3s ease;
+        }
+        .iso-item.overflow {
+            background: rgba(239, 68, 68, 0.8);
+            border: 2px dashed #b91c1c;
+            transform: rotateX(60deg) rotateZ(-45deg) translate3d(80px, -80px, 40px);
+            z-index: 10;
+        }
+        .btn-disabled {
+            background: #cbd5e1 !important;
+            color: #94a3b8 !important;
+            cursor: not-allowed !important;
+        }
+
+        /* 3D Highlight & Badge Animations */
+        @keyframes soft-blink {
+            0%, 100% { filter: brightness(1) drop-shadow(0 0 0px transparent); opacity: 1; }
+            50% { filter: brightness(1.5) drop-shadow(0 0 15px rgba(255,255,255,0.8)); opacity: 0.8; }
+        }
+        .iso-item.highlight {
+            animation: soft-blink 1s infinite !important;
+            z-index: 20;
+            border: 2px solid white;
+        }
+        @keyframes pulse-danger {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .c-card.must-ship {
+            animation: pulse-danger 2s infinite;
+        }
+        .input-panel {
+            display: flex;
+            gap: 1.5rem;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.4);
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.02);
+        }
+        .kpi-card {
+    background: var(--bg-card);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+    transition: transform var(--transition-fast);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+.kpi-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+        .input-dropzone {
+            flex: 1;
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: rgba(255,255,255,0.5);
+        }
+        .input-dropzone:hover {
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.05);
+        }
+        .story-dashboard {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-shrink: 0;
+            position: relative;
+        }
+        .story-panel {
+            flex: 1;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            position: relative;
+            opacity: 0.4;
+            transition: all 0.5s ease;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+            filter: grayscale(100%);
+        }
+        .story-panel.active {
+            opacity: 1;
+            filter: grayscale(0%);
+            border-color: var(--primary);
+            box-shadow: 0 4px 20px rgba(59, 130, 246, 0.15);
+            transform: translateY(-2px);
+        }
+        .story-panel.completed {
+            opacity: 1;
+            filter: grayscale(0%);
+            border-color: var(--success);
+        }
+        .story-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            border-bottom: 1px solid var(--border-subtle);
+            padding-bottom: 0.75rem;
+        }
+        .story-badge {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        .story-panel.active .story-badge {
+            background: var(--primary);
+            color: white;
+        }
+        .story-panel.completed .story-badge {
+            background: var(--success);
+            color: white;
+        }
+        .story-header h4 {
+            margin: 0;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            flex: 1;
+        }
+        .story-status {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            background: var(--bg-secondary);
+            padding: 2px 8px;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+        .story-panel.active .story-status {
+            color: var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+            animation: pulse-border 1.5s infinite;
+        }
+        .story-panel.completed .story-status {
+            color: var(--success);
+            background: rgba(16, 185, 129, 0.1);
+        }
+        .story-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            padding-top: 1.5rem;
+        }
+        .story-placeholder {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            text-align: center;
+            margin: auto;
+        }
+        .data-item {
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+            transition: opacity 0.5s ease;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .ai-spinner {
+            width: 36px;
+            height: 36px;
+            border: 3px solid rgba(59, 130, 246, 0.15);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        .ai-loading-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 0;
+            margin: auto;
+        }
+        .ai-loading-text {
+            color: var(--primary);
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-align: center;
+            min-height: 1.5rem;
+            transition: opacity 0.3s ease;
+        }
+        .log-line {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+            opacity: 0;
+            transform: translateY(5px);
+            transition: all 0.3s;
+        }
+        .log-line.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .story-content.pipeline {
+            padding-left: 1rem;
+            padding-bottom: 0.5rem;
+            position: relative;
+        }
+        .story-content.pipeline::before {
+            content: '';
+            position: absolute;
+            left: 1.875rem; 
+            top: 1rem;
+            bottom: 2rem;
+            width: 2px;
+            background: #cbd5e1;
+            z-index: 0;
+        }
+        .decision-point {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+            margin-bottom: 1.25rem;
+            opacity: 0;
+            transform: translateX(-10px);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 1;
+        }
+        .decision-point.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+        .decision-point .dp-icon {
+            min-width: 28px;
+            min-height: 28px;
+            width: 28px;
+            height: 28px;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            font-weight: bold;
+            color: #64748b;
+            background: #ffffff;
+            border: 2px solid #cbd5e1;
+            border-radius: 50%;
+            font-family: 'Inter', sans-serif;
+            flex-shrink: 0;
+            transition: all 0.5s;
+            position: relative;
+            z-index: 2;
+        }
+        .decision-point.show .dp-icon {
+            color: white;
+            background: #3b82f6;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+        }
+        .decision-point:nth-child(3).show .dp-icon {
+            background: #8b5cf6;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.2);
+        }
+        .decision-point .dp-text {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            background: rgba(255,255,255,0.8);
+            padding: 0.6rem 0.8rem;
+            border-radius: 6px;
+            border: 1px solid #f1f5f9;
+            border-left: 4px solid transparent;
+            width: 100%;
+            transition: all 0.3s;
+        }
+        .decision-point.show .dp-text {
+            border-left-color: #3b82f6;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .decision-point:nth-child(3).show .dp-text {
+            border-left-color: #8b5cf6;
+            background: linear-gradient(to right, rgba(139, 92, 246, 0.05), rgba(255,255,255,0.8));
+        }
+        .decision-point .dp-text strong {
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+        .decision-point .dp-text span {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            70% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+
+        .input-actions {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        /* アラート用グローエフェクト（後光） */
+        @keyframes pulse-glow {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 20px 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .c-card.urgent {
+            border: 1px solid rgba(239, 68, 68, 0.5);
+            animation: pulse-glow 2s infinite;
+            position: relative;
+        }
+        .c-card.urgent::after {
+            content: "🔥 納期直近";
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ef4444;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 20px;
+            box-shadow: 0 2px 8px rgba(239,68,68,0.4);
+            z-index: 10;
+        }
+        
+        .container-grid.list-view .c-card.urgent::after {
+            display: none;
+        }
+        
+        .list-urgent-badge {
+            background: #ef4444;
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(239,68,68,0.3);
+            white-space: nowrap;
+            display: inline-block;
+        }
+
+        /* 新しいミクロ画面（モーダル）のレイアウト */
+        .workspace-modal {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            min-height: 600px;
+        }
+        .workspace-3d {
+            flex: 2;
+            background: #f8fafc;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .workspace-sidebar {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            overflow-y: hidden;
+        }
+        
+        /* 3Dモック */
+        .iso-container {
+            width: 400px;
+            height: 200px;
+            border: 2px dashed #94a3b8;
+            transform: rotateX(60deg) rotateZ(-45deg);
+            position: relative;
+            background: rgba(255,255,255,0.5);
+            backdrop-filter: blur(4px);
+            box-shadow: 20px 20px 40px rgba(0,0,0,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+        .iso-container:hover {
+            border-color: #3b82f6;
+            box-shadow: 20px 20px 60px rgba(59,130,246,0.15);
+        }
+        .iso-item {
+            width: 80px; height: 80px;
+            background: rgba(239, 68, 68, 0.8);
+            position: absolute;
+            bottom: 10px; left: 10px;
+            border: 1px solid #b91c1c;
+            box-shadow: inset 0 0 10px rgba(255,255,255,0.2);
+            transition: all 0.3s;
+        }
+        .iso-item.pull { background: rgba(16, 185, 129, 0.8); border-color: #047857; left: 100px; }
+
+        /* タブとリスト */
+        .workspace-tabs {
+            display: flex;
+            gap: 1rem;
+            border-bottom: 2px solid #f1f5f9;
+            margin-bottom: 0.5rem;
+        }
+        .workspace-tab {
+            padding: 0.5rem 1rem;
+            font-weight: 700;
+            color: #64748b;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+        .workspace-tab.active {
+            color: #3b82f6;
+            border-bottom-color: #3b82f6;
+        }
+        .workspace-tab:hover:not(.active) {
+            color: #1e293b;
+        }
+
+        .drag-list {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        .drag-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.6rem 0.8rem;
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 0.35rem;
+            cursor: grab;
+            transition: all 0.2s;
+        }
+        .drag-item::before {
+            content: '⋮⋮';
+            color: #cbd5e1;
+            font-size: 1.2rem;
+            font-weight: bold;
+            line-height: 1;
+        }
+        .drag-item:hover {
+            border-color: #3b82f6;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
+            transform: translateY(-2px);
+        }
+        .drag-item.urgent { border-left: 4px solid #ef4444; }
+        .drag-item.pull { border-left: 4px solid #10b981; }
+        
+        .item-info { flex: 1; }
+        .item-title { font-weight: 700; color: #1e293b; font-size: 0.9rem; }
+        .item-meta { font-size: 0.75rem; color: #64748b; margin-top: 0.3rem; display: flex; gap: 0.5rem; align-items: center;}
+        .item-weight { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-weight: 600;}
+
+        .action-row {
+            margin-top: auto;
+            padding-top: 1rem;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 1rem;
+            flex-shrink: 0;
+        }
+    </style>
 </head>
 <body>
     <div class="app">
-        <header class="app-header">
-            <div class="logo">ISUZU Vanning Optimizer</div>
-            <div class="stepper">
-                <div class="step-dot active" id="step-1-nav">1. 読込</div>
-                <div class="step-dot" id="step-2-nav">2. 確認</div>
-                <div class="step-dot" id="step-3-nav">3. 計算</div>
-                <div class="step-dot" id="step-4-nav">4. 結果</div>
-            </div>
+        <header class="app-header" style="position: relative;">
+            <button id="reset-btn" class="btn-ghost" style="position: absolute; left: 1.5rem; display: none; align-items: center; gap: 6px; padding: 0.4rem 1rem; border-radius: 99px; font-size: 0.85rem; border: 1px solid transparent; background: rgba(241, 245, 249, 0.8); color: var(--text-secondary); transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#0f172a'" onmouseout="this.style.background='rgba(241, 245, 249, 0.8)'; this.style.color='var(--text-secondary)'" onclick="location.reload()">
+                <span style="font-weight: bold; font-size: 1rem; line-height: 1;">←</span> 戻る
+            </button>
+            <div class="logo">ISUZU Vanning Optimizer <span style="font-size:0.8rem; background:#3b82f6; color:white; padding:2px 8px; border-radius:12px; margin-left:10px;">β版</span></div>
         </header>
 
-        <main>
-            <!-- ====== Step 1: Upload ====== -->
-            <section id="step-1" class="step-panel active">
-                <div class="glass-card">
-                    <h2>出荷指示書（Excel）を読み込む</h2>
-                    <p class="subtitle">列名は問いません。L・W・H・重量・納入日があれば自動で認識します</p>
-
-                    <div class="upload-zone" id="drop-zone">
-                        <div class="upload-icon">🗂️</div>
-                        <p>ここにファイルをドラッグ＆ドロップ</p>
-                        <p class="hint">または、クリックして選択（.xlsx / .xls）</p>
-                        <input type="file" id="file-input" hidden accept=".xlsx, .xls">
-                    </div>
-
-                    <div style="text-align:center; margin-top:1.5rem;">
-                        <a id="sample-download-link" href="/api/download_template" class="template-link">
-                            📥 サンプルExcel（シミュレーションデータ）をダウンロード
-                        </a>
-                    </div>
+        <main style="width: 100%; margin: 0 auto; padding: 0.5rem 1.5rem 1rem 1.5rem; flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;">
+            
+            <!-- 初期画面 (Welcome Screen) -->
+            <div id="welcome-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 2rem; animation: fadeSlideIn 0.5s ease;">
+                
+                <div style="text-align: center; margin-bottom: 1rem;">
+                    <h2 style="font-size: 1.8rem; font-weight: 800; color: #1e293b; margin-bottom: 0.5rem;">最適化データをインポート</h2>
+                    <p style="color: var(--text-secondary);">出荷指示書をアップロードして、AIによる最適な積載プランを作成します</p>
                 </div>
-            </section>
 
-            <!-- ====== Step 2: Conditions ====== -->
-            <section id="step-2" class="step-panel">
-                <div class="glass-card">
-                    <h2>積込計画の確認</h2>
-                    <p class="subtitle">内容を確認し、最適化を開始してください</p>
-
-                    <div class="data-badge" id="data-badge">
-                        🗂️ 読込済み: <strong id="total-items">0</strong> 件
+                <div class="input-panel" style="flex-direction: column; padding: 0; gap: 1.5rem; min-width: 400px; background: transparent; border: none; box-shadow: none;">
+                    <div class="input-dropzone" id="drop-zone" style="padding: 3rem 2rem; background: rgba(255,255,255,0.5); backdrop-filter: blur(8px);">
+                        <div id="drop-icon" style="font-size:3rem; margin-bottom:1rem;">🗂️</div>
+                        <strong style="font-size: 1.2rem;">出荷指示書（Excel）をドロップ</strong>
+                        <div id="upload-status" style="font-size:0.9rem; margin-top:0.75rem; color: var(--text-muted);">読込完了: 待機中</div>
+                        <input type="file" id="file-input" hidden accept=".xlsx,.xls">
                     </div>
-
-                    <div id="planning-timeline" class="planning-timeline" style="display:none;"></div>
-
-                    <div id="validation-bar" class="validation-bar" style="display:none;"></div>
-
-                    <div class="condition-row" style="margin-top:1.5rem;">
+                    <div class="input-actions" style="display:flex; flex-direction:column; gap:1.5rem; width: 100%;">
                         <div class="field">
-                            <label>情報受領日</label>
+                            <label style="font-weight: bold; margin-bottom: 0.5rem; display: block;">基準日（この日以降の荷物を前倒し候補とする）</label>
                             <div class="date-field-group">
-                                <input type="date" id="base-date" style="width:180px;">
+                                <input type="date" id="base-date" style="width:100%; padding: 0.75rem;">
                                 <button class="btn-today" id="btn-today" type="button">本日</button>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="actions">
-                        <button class="btn-ghost" onclick="showStep(1)">戻る</button>
-                        <button class="btn-primary" id="btn-run">📊 最適化を実行</button>
+                        <button class="btn-primary" style="width:100%; padding: 1rem; font-size: 1.2rem;" id="btn-run">最適化を実行</button>
                     </div>
                 </div>
-            </section>
+            </div>
 
-            <!-- ====== Step 3: Loading ====== -->
-            <section id="step-3" class="step-panel">
-                <div class="glass-card loading-card">
-                    <div class="pulse-ring"></div>
-                    <p id="loading-text">積込パターンを計算中...</p>
-                    <div class="loading-progress-wrap">
-                        <div class="loading-progress-bar" id="loading-bar" style="width:0%"></div>
+            <!-- 以下のダッシュボード要素は最初は非表示 -->
+            <!-- 上部: 最適化ストーリー (プログレッシブ開示) -->
+            <div class="story-dashboard" id="story-dashboard" style="flex-shrink: 0; padding-top: 22px; display: none;">
+                <button class="collapse-toggle-btn" onclick="toggleStoryCollapse()">
+                    <span class="icon">▲</span> ストーリーを開閉
+                </button>
+                <!-- Step 1: 現状 -->
+                <div class="story-panel" id="story-1">
+                    <div class="story-header">
+                        <div class="story-badge">1</div>
+                        <h4>読込と現状の課題</h4>
+                        <div class="story-status" id="status-1">待機中</div>
                     </div>
-                    <div id="loading-timer" style="margin-top:0.5rem; color:#94a3b8; font-size:0.85rem; font-variant-numeric: tabular-nums;">経過時間: 0秒</div>
-                </div>
-            </section>
-
-            <!-- ====== Step 4: Dashboard ====== -->
-            <section id="step-4" class="step-panel">
-
-                <!-- Decision Banner -->
-                <div class="decision-banner" id="decision-banner">
-                    <div class="decision-main">
-                        <div class="decision-number" id="decision-number">—</div>
-                        <div class="decision-unit">
-                            本を発注
-                            <small id="decision-sub">コンテナ確定数</small>
+                    <div class="story-body">
+                        <div class="story-placeholder" id="placeholder-1">Excelファイルをドロップしてください</div>
+                        <div class="story-content" id="content-1" style="display:none;">
+                            <div class="data-item" style="font-size:0.9rem;">出荷対象: <strong id="val-items" style="color:var(--text-primary);">0</strong> 件 <span style="color:var(--text-muted); font-size:0.8rem;">(総体積: 約<span id="val-volume">-</span>m³)</span></div>
+                            <div class="data-item" style="opacity:0; margin-top:0.75rem;" id="step1-data1">
+                                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+                                    <div style="display:flex; flex-direction:column;">
+                                        <span style="font-size:0.85rem; color:var(--text-secondary);">純粋な体積からの理論最小値 <span style="font-size:0.75rem;">(40ft換算)</span>:</span>
+                                        <span style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;" id="val-theoretical-note">(計算中...)</span>
+                                    </div>
+                                    <span style="font-weight:bold; color:var(--text-primary); margin-top:2px; flex-shrink:0; white-space:nowrap;"><span id="val-theoretical">---</span></span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-top:0.5rem;">
+                                    <div style="display:flex; flex-direction:column;">
+                                        <span style="font-size:0.85rem; color:var(--text-secondary);">予測コンテナ数（グリーディ法）:</span>
+                                        <span style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">(※納期・仕向け地順の単純割当 ＋ 従来の標準積載率で概算)</span>
+                                    </div>
+                                    <strong style="color:var(--danger); font-size:1.1rem; margin-top:2px; flex-shrink:0; white-space:nowrap;"><span id="val-greedy">---</span></strong>
+                                </div>
+                            </div>
+                            <div class="data-item" style="opacity:0; font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem; background:rgba(239, 68, 68, 0.05); padding:0.5rem; border-radius:4px; border-left:3px solid var(--danger);" id="step1-data2">
+                                <span style="color:var(--danger); font-weight:bold;"><span id="val-warning">警告: デッドスペースの蓄積を予測</span></span><br>
+                                単純アルゴリズムによる計算のため、デッドスペースが蓄積しています
+                            </div>
                         </div>
                     </div>
-                    <div class="decision-verdict" id="decision-verdict"></div>
-                    <div class="decision-meta" id="decision-meta"></div>
                 </div>
 
-                <!-- KPI Cards -->
-                <div class="kpi-row" id="kpi-row">
-                    <div class="kpi-card" id="kpi-card-containers">
-                        <div class="kpi-label">手配するコンテナ数</div>
-                        <div class="kpi-value" id="kpi-containers">0</div>
-                        <div class="kpi-unit">台</div>
-                        <div class="kpi-delta" id="kpi-containers-delta"></div>
+                <!-- Step 2: AIのアプローチ -->
+                <div class="story-panel" id="story-2">
+                    <div class="story-header">
+                        <div class="story-badge">2</div>
+                        <h4>ヒューリスティック最適化</h4>
+                        <div class="story-status" id="status-2">待機中</div>
                     </div>
-                    <div class="kpi-card" id="kpi-card-alerts">
-                        <div class="kpi-label">積載目標（80%）未達</div>
-                        <div class="kpi-value" id="kpi-alerts">0</div>
-                        <div class="kpi-unit">台</div>
-                        <div class="kpi-delta" id="kpi-alerts-delta"></div>
+                    <div class="story-body">
+                        <div class="story-placeholder" id="placeholder-2">データを待機しています</div>
+                        <div class="story-content pipeline" id="content-2" style="display:none; padding-right:5px;">
+                            <div class="decision-point" id="dp-1">
+                                <div class="dp-icon">1</div>
+                                <div class="dp-text">
+                                    <strong>空きスペースの徹底分析</strong>
+                                    <span>コンテナ内の無駄な空間を洗い出しています...</span>
+                                </div>
+                            </div>
+                            <div class="decision-point" id="dp-2">
+                                <div class="dp-icon">2</div>
+                                <div class="dp-text">
+                                    <strong>3Dパズル配置シミュレーション</strong>
+                                    <span>荷物を回転させ、最も隙間のない組み合わせを計算中...</span>
+                                </div>
+                            </div>
+                            <div class="decision-point" id="dp-3">
+                                <div class="dp-icon">3</div>
+                                <div class="dp-text">
+                                    <strong>最適な配置プランの発見</strong>
+                                    <span style="color:#7c3aed; font-weight:bold;"><span id="dp3-result">隙間を極限まで減らし、全量を【51台】に収めるプランが完成しました！</span></span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="kpi-card" id="kpi-card-fillrate">
-                        <div class="kpi-label">平均積載効率（体積）</div>
-                        <div class="kpi-value" id="kpi-fillrate">0</div>
-                        <div class="kpi-unit">%</div>
-                        <div class="kpi-delta" id="kpi-fillrate-delta"></div>
+                </div>
+
+                <!-- Step 3: 最終結果 -->
+                <div class="story-panel" id="story-3">
+                    <div class="story-header">
+                        <div class="story-badge">3</div>
+                        <h4>最終結果（アルゴリズム比較）</h4>
+                        <div class="story-status" id="status-3">待機中</div>
+                    </div>
+                    <div class="story-body">
+                        <div class="story-placeholder" id="placeholder-3">最適化を待機しています</div>
+                        <div class="story-content" id="content-3" style="display:none;">
+                            <div style="text-align:center; margin-bottom: 1.25rem;">
+                                <div style="font-size: 1rem; color:var(--text-primary); font-weight:bold;">最適化による改善効果</div>
+                            </div>
+                            
+                            <div style="display:flex; flex-direction:column; gap:0.75rem;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; background:white; border:1px solid #e2e8f0; border-radius:6px; padding:0.8rem 1rem; box-shadow:0 1px 2px rgba(0,0,0,0.02);">
+                                    <div style="font-size:0.85rem; color:var(--text-secondary); font-weight:bold; white-space:nowrap;">手配コンテナ数</div>
+                                    <div style="display:flex; align-items:center; gap:0.5rem; white-space:nowrap;">
+                                        <span style="font-size:0.9rem; color:#94a3b8; text-decoration:line-through;"><span id="r3-greedy-count">55台</span></span>
+                                        <span style="color:#cbd5e1; font-size:0.8rem;">➔</span>
+                                        <strong style="font-size:1.6rem; color:var(--primary); line-height:1;"><strong id="r3-final-count" style="font-size:1.6rem; color:var(--primary); line-height:1;">51<span style="font-size:0.9rem; margin-left:2px;">台</span></strong></strong>
+                                        <span style="background:var(--success); color:white; padding:3px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; margin-left:0.25rem;"><span id="r3-reduction" style="background:var(--success); color:white; padding:3px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; margin-left:0.25rem;">4台削減</span></span>
+                                    </div>
+                                </div>
+
+                                <div style="display:flex; justify-content:space-between; align-items:center; background:white; border:1px solid #e2e8f0; border-radius:6px; padding:0.8rem 1rem; box-shadow:0 1px 2px rgba(0,0,0,0.02);">
+                                    <div style="font-size:0.85rem; color:var(--text-secondary); font-weight:bold; white-space:nowrap;">平均充填率 (実体積)</div>
+                                    <div style="display:flex; align-items:center; gap:0.5rem; white-space:nowrap;">
+                                        <span style="font-size:0.9rem; color:#94a3b8;">約70%</span>
+                                        <span style="color:#cbd5e1; font-size:0.8rem;">➔</span>
+                                        <strong style="font-size:1.6rem; color:var(--success); line-height:1;"><strong id="r3-final-rate" style="font-size:1.6rem; color:var(--success); line-height:1;">86.4<span style="font-size:0.9rem; margin-left:2px;">%</span></strong></strong>
+                                        <span style="color:var(--success); font-size:0.75rem; font-weight:bold; margin-left:0.25rem;"><span id="r3-rate-label" style="font-size:0.75rem; font-weight:bold; margin-left:0.25rem; color:var(--success);">高密度積載</span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- Compact Summary Bar -->
-                <div class="summary-bar" id="summary-bar"></div>
-
-                <!-- Container Filter Bar -->
-                <div class="filter-bar" id="filter-bar" style="display: none;">
-                    <button class="filter-btn active" data-filter="all">すべて表示 <span id="filter-count-all" class="filter-count">0</span></button>
-                    <button class="filter-btn warning" data-filter="alert">⚠️ スカスカ注意 <span id="filter-count-alert" class="filter-count">0</span></button>
-                    <button class="filter-btn success" data-filter="ok">✅ 出荷OK <span id="filter-count-ok" class="filter-count">0</span></button>
+            <!-- 進行スケジュール (Timeline) -->
+            <div class="schedule-timeline" id="schedule-timeline" style="flex-shrink: 0; margin-bottom: 0.5rem; display: none;">
+                <div class="timeline-step step-today">
+                    <div class="step-label">情報受領（今日）</div>
+                    <div class="step-date"><span id="tl-date1">2026-05-28</span></div>
                 </div>
-
-                <!-- Container Grid -->
-                <div class="container-grid" id="container-grid"></div>
-
-                <!-- Actions -->
-                <div class="dashboard-actions">
-                    <button class="btn-ghost" onclick="showStep(2)">🔄 条件を変更する</button>
-                    <button class="btn-primary" id="btn-export" onclick="downloadExcel()">📋 バンニング指示書を出力 (Excel)</button>
+                <div class="timeline-step">
+                    <div class="step-label">レイアウト確定</div>
+                    <div class="step-date"><span id="tl-date2">2026-06-04</span></div>
                 </div>
+                <div class="timeline-step step-vanning">
+                    <div class="step-label">バンニング期間</div>
+                    <div class="step-date"><span id="tl-date3">2026-06-11 ~ 2026-06-16</span></div>
+                </div>
+                <div class="timeline-step">
+                    <div class="step-label">船積日</div>
+                    <div class="step-date"><span id="tl-date4">2026-06-18</span></div>
+                </div>
+            </div>
 
-            </section>
+            <!-- 下部: ワークスペース (メイン画面) -->
+            <div class="workspace-layout" id="workspace-layout" style="display: none; grid-template-columns: 1fr; gap: 1rem; align-items: stretch; overflow: hidden; flex: 1;">
+                
+
+
+                <!-- 右メインエリア (コンテナリスト) -->
+                <div class="step-panel active" style="overflow-y: auto; flex: 1; min-height: 0; display: flex; flex-direction: column; padding-right: 0.5rem;">
+                    <div style="margin: 0 0 1rem; display:flex; justify-content:space-between; align-items:flex-end; position: sticky; top: 0; background: var(--bg-primary); z-index: 20; padding-bottom: 10px;">
+                        <div style="display:flex; flex-direction:column; gap: 0.75rem;">
+                            <h3 style="margin:0; color:#1e293b; font-size:1.1rem;">コンテナ一覧 <span style="font-size:0.85rem; font-weight:normal; color:#64748b; margin-left:10px;">納期（CYカット）が近い順</span></h3>
+                            <div class="filter-bar" style="display: flex; gap: 0.5rem;">
+                                <button class="filter-btn active" onclick="filterCards('all', this)" style="background:var(--bg-primary); border:1px solid #3b82f6; color:#3b82f6; border-radius:99px; padding:0.3rem 0.8rem; font-size:0.8rem; font-weight:bold; cursor:pointer;">すべて表示 (<span id="filter-count-all">0</span>)</button>
+                                <button class="filter-btn" onclick="filterCards('must-ship', this)" style="background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:99px; padding:0.3rem 0.8rem; font-size:0.8rem; font-weight:bold; cursor:pointer;">出荷必須 (<span id="filter-count-must-ship">0</span>)</button>
+                                <button class="filter-btn" onclick="filterCards('ok', this)" style="background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:99px; padding:0.3rem 0.8rem; font-size:0.8rem; font-weight:bold; cursor:pointer;">出荷OK (<span id="filter-count-ok">0</span>)</button>
+                                <button class="filter-btn" onclick="filterCards('delay', this)" style="background:transparent; border:1px solid #cbd5e1; color:#64748b; border-radius:99px; padding:0.3rem 0.8rem; font-size:0.8rem; font-weight:bold; cursor:pointer;">見送り候補 (<span id="filter-count-delay">0</span>)</button>
+                            </div>
+                        </div>
+                        <button class="btn-ghost" style="padding: 6px 12px; font-size: 0.85rem;" onclick="downloadExcel()">全コンテナ出力 (Excel)</button>
+                    </div>
+
+                <!-- Container Grid (Permanently set to List View) -->
+                <div class="container-grid list-view" id="container-grid" style="padding: 0 16px 16px 16px;">
+                    
+                    <!-- 納期直近（必須）カード -->
+                    <div class="c-card must-ship" onclick="document.getElementById('modal-test').style.display='flex'">
+                        <div class="c-head">
+                            <div class="c-num">
+                                <span style="font-weight:bold; white-space:nowrap; font-size:1.1rem; color:var(--text-primary);">C-005</span>
+                                <span style="font-size:0.7rem; background:#fef2f2; color:#ef4444; padding:2px 6px; border-radius:4px; margin-top:4px; white-space:nowrap;">納期: 06/02</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                                <span class="c-badge" style="background:#ef4444; color:white; border:none; white-space:nowrap; padding:4px 10px;">出荷必須（納期直近あり）</span>
+                            </div>
+                        </div>
+                        <div class="fill-bar-wrap">
+                            <div class="fill-bar-labels"><span>積載効率</span><span class="fill-pct" style="color:#ef4444;">62.1%</span></div>
+                            <div class="fill-bar-track">
+                                <div class="fill-bar-fill alert" style="width:62.1%"></div>
+                                <div class="fill-bar-target"></div>
+                            </div>
+                        </div>
+                        <div class="c-stats-grid">
+                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val alert">62.1<small>%</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">12,450<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">8<small>個</small></div></div>
+                        </div>
+                        <div style="margin-top:1rem; text-align:center; color:#64748b; font-size:0.85rem; font-weight:600;">
+                            👆 クリックして個別作業を開く
+                        </div>
+                    </div>
+
+                    <!-- 正常カード -->
+                    <div class="c-card ok" onclick="document.getElementById('modal-test').style.display='flex'">
+                        <div class="c-head">
+                            <div class="c-num">
+                                <span style="font-weight:bold; white-space:nowrap; font-size:1.1rem; color:var(--text-primary);">C-001</span>
+                                <span style="font-size:0.7rem; background:#f8fafc; color:#64748b; padding:2px 6px; border-radius:4px; margin-top:4px; white-space:nowrap;">納期: 06/03</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                                <span class="c-badge ok" style="white-space:nowrap;">出荷可</span>
+                            </div>
+                        </div>
+                        <div class="fill-bar-wrap">
+                            <div class="fill-bar-labels"><span>積載効率</span><span class="fill-pct">88.5%</span></div>
+                            <div class="fill-bar-track">
+                                <div class="fill-bar-fill ok" style="width:88.5%"></div>
+                                <div class="fill-bar-target"></div>
+                            </div>
+                        </div>
+                        <div class="c-stats-grid">
+                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ok">88.5<small>%</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">22,100<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">24<small>個</small></div></div>
+                        </div>
+                    </div>
+
+                    <!-- 前倒しカード -->
+                    <div class="c-card ok" onclick="document.getElementById('modal-test').style.display='flex'">
+                        <div class="c-head">
+                            <div class="c-num">
+                                <span style="font-weight:bold; white-space:nowrap; font-size:1.1rem; color:var(--text-primary);">C-002</span>
+                                <span style="font-size:0.7rem; background:#f1f5f9; color:#475569; padding:2px 6px; border-radius:4px; margin-top:4px; white-space:nowrap;">納期: 06/03</span>
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:6px; align-items:flex-end;">
+                                <span class="c-badge ok" style="white-space:nowrap;">✨ 出荷可（前倒し適用）</span>
+                            </div>
+                        </div>
+                        <div class="c-reason pull" style="margin-bottom:1rem;">前倒し候補から18個を追加し、目標の80%を達成</div>
+                        <div class="fill-bar-wrap">
+                            <div class="fill-bar-labels"><span>積載効率</span><span class="fill-pct" style="color:#10b981;">81.2%</span></div>
+                            <div class="fill-bar-track">
+                                <div class="fill-bar-fill ok" style="width:81.2%"></div>
+                                <div class="fill-bar-target"></div>
+                            </div>
+                        </div>
+                        <div class="c-stats-grid">
+                                <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ok">81.2<small>%</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">19,800<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">18<small>個</small></div></div>
+                        </div>
+                    </div>
+                </div>
+                </div> <!-- end of step-panel -->
+            </div> <!-- end of workspace-layout -->
         </main>
 
-        <!-- ====== 3D Modal ====== -->
-        <div class="modal-overlay" id="modal-3d">
-            <div class="modal-content">
+    <!-- 3D モーダル (新UI) -->
+        <div class="modal-overlay" id="modal-3d" style="display:none; padding: 1rem;">
+            <div class="modal-content" style="max-width: 1400px; height: 96vh; display:flex; flex-direction:column;">
                 <div class="modal-header">
                     <div>
-                        <h3 id="modal-title">3Dレイアウト</h3>
+                        <h3 style="margin:0; font-size:1.2rem;" id="modal-title">C-005 <span style="font-weight:normal; font-size:0.9rem; color:#64748b; margin-left:10px;">個別作業ワークスペース</span></h3>
                     </div>
-                    <div class="legend" id="color-legend-normal">
+                    <div class="legend">
                         <span><span style="color:#3b82f6;">■</span> 通常</span>
                         <span><span style="color:#10b981;">■</span> 空き埋め</span>
                         <span><span style="color:#ef4444;">■</span> 強制出荷</span>
-                        <span><span style="color:#ff0000;font-size:1.1em;">●</span> 重心</span>
                     </div>
-                    <div style="margin-left:auto;">
-                        <button id="toggle-color-mode" class="btn-ghost" style="padding:4px 8px; font-size:12px;">🎨 仕向け地で色分け</button>
-                    </div>
-                    <button class="modal-close" onclick="close3D()">&times;</button>
+                    <button class="modal-close" onclick="cancelManualEdit()">&times;</button>
                 </div>
-                <div class="modal-body" id="3d-container">
-                    <div class="stats-overlay" id="3d-stats-overlay"></div>
-                    <div class="tooltip-3d" id="3d-tooltip"></div>
+                
+                
+                <div class="workspace-modal">
+                    <!-- 左：3Dプレビュー -->
+                    <div class="workspace-3d">
+                        <div style="position:absolute; top:20px; right:20px; display:flex; gap:10px;">
+                            <button id="btn-reset-camera" class="btn-ghost" style="background:white; font-size: 0.8rem; padding: 6px 12px;" onclick="resetCamera()">🔄 視点リセット</button>
+                            <button id="btn-toggle-transparent" class="btn-ghost" style="background:white; font-size: 0.8rem; padding: 6px 12px;" onclick="toggleTransparentMode()">👁️ 透過モード</button>
+                            <button id="toggle-color-mode" class="btn-ghost" style="background:white; font-size: 0.8rem; padding: 6px 12px;">🎨 仕向け地で色分け</button>
+                        </div>
+                        
+                        <div id="3d-container" style="flex:1; width:100%; position:relative; min-height: 400px; display:flex; justify-content:center; align-items:center;">
+                            <div class="stats-overlay" id="3d-stats-overlay"></div>
+                            
+                            <!-- トースト通知用のコンテナ（stats-overlayの横） -->
+                            <div id="toast-container" style="position: absolute; top: 1rem; left: 240px; z-index: 1000; pointer-events: none; display: flex; flex-direction: column; gap: 10px;"></div>
+                            
+                            <div class="tooltip-3d" id="3d-tooltip"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- 右：荷物リスト＆操作 -->
+                    <div class="workspace-sidebar">
+                        <div id="modal-alert-banner" style="display:none; background:#fee2e2; color:#ef4444; padding:0.75rem; border-radius:6px; margin-bottom:1rem; font-weight:bold; text-align:center;">
+                            ⚠️ 容積オーバー - エラーを解消するまで確定できません
+                        </div>
+                        
+                        <div class="action-row" style="margin-bottom: 0.75rem; justify-content: flex-start; gap: 0.5rem; background: #f8fafc; padding: 0.5rem; border-radius: 6px;">
+                            <button id="undo-btn" onclick="undoManualEdit()" disabled style="padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: 4px; border: 1px solid #cbd5e1; background: white; color: #475569; cursor: pointer; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05);" onmouseover="if(!this.disabled) this.style.borderColor='#94a3b8';" onmouseout="if(!this.disabled) this.style.borderColor='#cbd5e1';">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3l-3 2.7"/></svg>
+                                戻す
+                            </button>
+                            <button id="redo-btn" onclick="redoManualEdit()" disabled style="padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: 4px; border: 1px solid #cbd5e1; background: white; color: #475569; cursor: pointer; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05);" onmouseover="if(!this.disabled) this.style.borderColor='#94a3b8';" onmouseout="if(!this.disabled) this.style.borderColor='#cbd5e1';">
+                                やり直し
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
+                            </button>
+                        </div>
+                        
+                        <div class="workspace-tabs" style="margin-top:0.5rem;">
+                            <div class="workspace-tab active" id="tab-packed" onclick="switchModalTab('packed')">搭載済み (<span id="packed-count">0</span>)</div>
+                            <div class="workspace-tab" id="tab-unpacked" onclick="switchModalTab('unpacked')">未積載 / 候補 (<span id="unpacked-count">0</span>)</div>
+                            <div class="workspace-tab" id="tab-removed" onclick="switchModalTab('removed')">外した荷物 (<span id="removed-count">0</span>)</div>
+                        </div>
+                        
+                        <div id="packed-view" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+                            <div style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin: 0.75rem 0 0.25rem; font-weight: bold; letter-spacing: 0.05em; flex-shrink:0;">
+                                ▲ コンテナの奥（最初に積み込む）
+                            </div>
+                            
+                            <div class="drag-list" id="modal-drag-list" style="flex:1; overflow-y:auto;"></div>
+                            <div style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin: 0.25rem 0 0.5rem; font-weight: bold; letter-spacing: 0.05em; flex-shrink:0;">
+                                ▼ コンテナの手前・扉側（最後に積み込む）
+                            </div>
+                        </div>
+
+                        <div id="unpacked-view" style="display:none; flex-direction:column; flex:1; min-height:0;">
+                            <div style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin: 0.75rem 0 0.25rem; font-weight: bold; letter-spacing: 0.05em; flex-shrink:0;">
+                                未積載の荷物リスト（クリックで追加）
+                            </div>
+                            <div class="drag-list" id="modal-unpacked-list" style="flex:1; overflow-y:auto;"></div>
+                        </div>
+                        <div id="removed-view" style="display:none; flex-direction:column; flex:1; min-height:0;">
+                            <div style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin: 0.75rem 0 0.25rem; font-weight: bold; letter-spacing: 0.05em; flex-shrink:0;">
+                                コンテナから外した荷物リスト
+                            </div>
+                            <div class="drag-list" id="modal-removed-list" style="flex:1; overflow-y:auto;"></div>
+                        </div>
+                        <div class="action-row" style="margin-top: 1rem; flex-shrink: 0; align-items: center;">
+                            <button class="btn-ghost" onclick="clearManualEdits()" style="padding: 0.6rem 1rem; font-size: 0.85rem; white-space: nowrap;">変更をクリア</button>
+                            <div style="display:flex; gap:0.5rem; align-items: center;">
+                                <button class="btn-primary" style="background:#3b82f6; white-space:nowrap; padding: 0.6rem 1.2rem; font-size: 0.95rem; height: auto; min-height: 40px;" onclick="close3D()">レイアウト確定</button>
+                                <button class="btn-primary" id="confirm-btn-mock" style="background:#10b981; white-space:nowrap; padding: 0.6rem 1.2rem; font-size: 0.95rem; height: auto; min-height: 40px;" onclick="confirmManualEdit()">📋 指示書出力</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
+</div>
 
-    <script src="script.js"></script>
+<script src="script.js?v=3"></script>
 </body>
 </html>

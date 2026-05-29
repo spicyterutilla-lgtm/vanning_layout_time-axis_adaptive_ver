@@ -1,6 +1,5 @@
 import pandas as pd
 import uuid
-import random
 import datetime
 import sys
 from models import Item
