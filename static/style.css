@@ -10,8 +10,8 @@
     --bg-card: rgba(255, 255, 255, 0.85);
     --bg-card-hover: rgba(255, 255, 255, 1);
     --bg-input: #ffffff;
-    --border-subtle: rgba(15, 23, 42, 0.08);
-    --border-focus: rgba(220, 38, 38, 0.5);
+    --border-subtle: rgba(148, 163, 184, 0.4);
+    --border-focus: rgba(59, 130, 246, 0.5);
     --text-primary: #0f172a;
     --text-secondary: #475569;
     --text-muted: #94a3b8;
@@ -32,8 +32,8 @@
     --radius-md: 12px;
     --radius-lg: 16px;
     --radius-xl: 24px;
-    --shadow-card: 0 4px 20px rgba(0,0,0,0.05);
-    --shadow-glow: 0 0 30px rgba(220, 38, 38, 0.08);
+    --shadow-card: 0 10px 30px -5px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+    --shadow-glow: 0 0 30px rgba(59, 130, 246, 0.1);
     --transition-fast: 0.15s ease;
     --transition-normal: 0.3s ease;
 }
@@ -61,10 +61,11 @@ html, body {
     overflow: hidden;
 }
 body {
-    font-family: 'Inter', 'BIZ UDPGothic', 'Hiragino Sans', 'Meiryo', sans-serif;
+    font-family: 'Inter', 'Noto Sans JP', 'Hiragino Sans', 'Meiryo', sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
     line-height: 1.6;
+    letter-spacing: 0.03em;
     -webkit-font-smoothing: antialiased;
     display: flex;
     flex-direction: column;
@@ -231,12 +232,12 @@ body {
 .input-panel {
     display: flex;
     gap: 1.5rem;
-    background: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(16px);
     padding: 1.5rem;
     border-radius: var(--radius-lg);
-    border: 1px solid var(--border-subtle);
-    box-shadow: var(--shadow-sm);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.06);
 }
 
 .input-dropzone {
@@ -408,12 +409,12 @@ body {
 .c-card {
     background: #ffffff;
     border-radius: var(--radius-lg);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid rgba(148, 163, 184, 0.4);
     padding: 0.8rem 1rem;
     position: relative;
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.05);
     
     /* 初期状態は非表示かつ上にずらしておく (シャッター展開用) */
     opacity: 0;
@@ -506,8 +507,8 @@ body {
     justify-content: space-between;
     gap: 1.5rem;
     background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
-    border-left: 4px solid var(--accent);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    border-left: 6px solid var(--accent);
     border-radius: var(--radius-lg);
     padding: 1.25rem 2rem;
     margin-bottom: 1.5rem;
@@ -632,11 +633,11 @@ body {
     align-items: center;
     padding: 0.5rem 1rem;
     background: #ffffff;
-    border: 1px solid rgba(226, 232, 240, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.3);
     border-radius: var(--radius-md);
     margin-bottom: 1.5rem;
     font-size: 0.85rem;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 .summary-bar-label {
     font-weight: 700;

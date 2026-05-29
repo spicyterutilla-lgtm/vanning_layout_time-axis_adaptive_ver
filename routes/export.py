@@ -361,15 +361,127 @@ def export_excel():
                 cell.value = val
                 cell.border = border_thin
 
-        widths = [30, 36, 14, 14, 14, 14, 16, 10, 20, 48, 30]
-        for col_idx, width in enumerate(widths, 1):
-            ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
-
     wb.save(output)
     output.seek(0)
     return send_file(
         output, 
         download_name='trial_vanning_instructions.xlsx' if is_trial_export else 'vanning_instructions.xlsx',
+        as_attachment=True,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+def export_single_container():
+    from flask import request, jsonify
+    from io import BytesIO
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    import datetime
+
+    container_id = request.args.get('container_id')
+    if not container_id:
+        return jsonify({'error': 'コンテナIDが指定されていません'}), 400
+
+    containers = SESSION_DATA.get("last_containers", [])
+    target_c = next((c for c in containers if str(c.id) == str(container_id)), None)
+    if not target_c:
+        return jsonify({'error': 'コンテナが見つかりません'}), 404
+
+    output = BytesIO()
+    
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active) # デフォルトシートを削除
+    
+    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    border_thin = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+    
+    export_base_date = SESSION_DATA.get("last_base_date", datetime.date.today())
+    export_must_ship_window_days = SESSION_DATA.get("last_must_ship_window_days", 7)
+    alert_summaries = SESSION_DATA.get("last_alert_summaries", {})
+    
+    ws = wb.create_sheet(title=str(target_c.id))
+    alert_summary = alert_summaries.get(target_c.id) or build_container_alert_summary(target_c, export_base_date, export_must_ship_window_days)
+    alert_text = (
+        f"{alert_summary['title']}：{alert_summary['detail']}"
+        if alert_summary.get("title")
+        else "体積80%クリア"
+    )
+    
+    ws.merge_cells('A1:M1')
+    ws['A1'] = f"【バンニング指示書】 コンテナ: {target_c.id}"
+    ws['A1'].font = Font(size=14, bold=True)
+    
+    ws['A3'] = "最大重量(kg)"
+    ws['B3'] = target_c.max_weight
+    ws['A4'] = "現在重量(kg)"
+    ws['B4'] = target_c.current_weight
+    ws['A5'] = "重量充填率"
+    ws['B5'] = f"{round(target_c.fill_rate_weight, 1)}%"
+    ws['A6'] = "体積充填率"
+    ws['B6'] = f"{round(target_c.fill_rate_volume, 1)}%"
+    ws['A7'] = "出荷判断"
+    ws['B7'] = alert_text
+    ws.merge_cells('B7:M7')
+    
+    for r in range(3, 8):
+        ws[f'A{r}'].fill = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+        ws[f'A{r}'].border = border_thin
+        ws[f'B{r}'].border = border_thin
+    ws['B7'].alignment = Alignment(wrap_text=True, vertical="top")
+    if target_c.fill_rate_volume < VOLUME_TARGET_RATE:
+        ws['B7'].font = Font(color="FF0000", bold=True)
+    
+    headers = [
+        "積込順", "依頼コード", "部品コード", "車両コード", "仕向け地", "品名",
+        "梱包前重量(kg)", "梱包後重量(kg)", "寸法 L×W×H(mm)",
+        "3D配置 (奥×横×高)", "分類理由", "判断根拠", "特記事項・ステータス"
+    ]
+    start_row = 10
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=start_row, column=col_idx)
+        cell.value = h
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = border_thin
+        
+    for idx, i in enumerate(target_c.items, 1):
+        row_idx = start_row + idx
+        dim_str = f"{i.length} × {i.width} × {i.height}" + (" (回転)" if i.is_rotated else "")
+        pos_str = f"X:{i.x} Y:{i.y} Z:{i.z}" if i.x is not None else "未定"
+        status = i.status_msg if i.status_msg else "通常"
+        if i.is_force_ship and status == "通常":
+            status = "80%未満/積込期限優先出荷"
+            
+        row_data = [
+            idx, i.request_code, i.part_code, i.vehicle_code, i.destination, i.name,
+            f"{i.unpacked_weight:,.1f}" if i.unpacked_weight is not None else "",
+            f"{i.weight:,.1f}", dim_str, pos_str,
+            i.selection_reason if i.selection_reason else "通常",
+            i.decision_reason or i.selection_reason, status
+        ]
+        
+        for col_idx, val in enumerate(row_data, 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = val
+            cell.border = border_thin
+            if col_idx in {1, 7, 8}:
+                cell.alignment = Alignment(horizontal="right")
+            if col_idx == 13:
+                if "強制出荷" in status:
+                    cell.font = Font(color="FF0000", bold=True)
+                elif "前倒し" in status:
+                    cell.font = Font(color="008000", bold=True)
+    
+    widths = [8, 22, 16, 14, 20, 30, 15, 15, 25, 25, 20, 48, 40]
+    for col_idx, width in enumerate(widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
+
+    wb.save(output)
+    output.seek(0)
+    return send_file(
+        output, 
+        download_name=f'container_{target_c.id}_instructions.xlsx',
         as_attachment=True,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
