@@ -3,3 +3,6 @@ uploads/
 *.pyc
 .DS_Store
 temp_output.txt
+rustup-init.exe
+packing_3d_rs/
+貨物リスト_シミュレーション用_*.xlsx

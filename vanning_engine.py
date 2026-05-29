@@ -1,7 +1,7 @@
 import uuid
 import datetime
 import copy
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from models import Item, Container
 from packing_3d import Packer3D
 
@@ -18,12 +18,13 @@ class VanningEngine:
     """
     バンニング計算コアエンジン（第3フェーズ：3D配置・時間軸操作対応版）
     """
-    def __init__(self, strategy_mode: str = "full", prioritize_open_containers: bool = True):
+    def __init__(self, strategy_mode: str = "full", prioritize_open_containers: bool = True, vanning_base_date: Optional[datetime.date] = None):
         # 各コンテナの3D空間状態を管理するパッカー
         self.packers: Dict[str, Packer3D] = {}
         self.last_packing_strategy = ""
         self.strategy_mode = strategy_mode
         self.prioritize_open_containers = prioritize_open_containers
+        self.vanning_base_date = vanning_base_date
         self.strategy_trials = []
         self.deep_strategy_trials = []
         self.alert_pool_strategy = ""
@@ -47,44 +48,41 @@ class VanningEngine:
     def _footprint_m2(self, item: Item) -> float:
         return (item.length / 1000) * (item.width / 1000)
 
-    def _violates_container_rules(self, container: Container, item: Item) -> bool:
-        if item.separation_group:
-            for existing in container.items:
-                if existing.separation_group and existing.separation_group != item.separation_group:
-                    return True
-        return False
-
     def _can_pack(self, container: Container, item: Item) -> bool:
         """重量制約と3D座標での当たり判定（完全収容・底面接地率100%）"""
+        # 0. 時間制約（バンニング日より後に納入される荷物は積載不可）
+        if container.vanning_date and item.creation_date > container.vanning_date:
+            return False
+
         # 1. 重量チェック
         if container.current_weight + item.weight > container.max_weight:
             return False
 
-        if self._violates_container_rules(container, item):
-            return False
-            
         # 2. 3D配置判定（パズルの計算）
         if container.id not in self.packers:
             self.packers[container.id] = Packer3D(container)
-            
+
         packer = self.packers[container.id]
-        
+
         # packer.try_pack_item は、空間に空きがあれば座標(x,y,z)を確定させてTrueを返す
         return packer.try_pack_item(item)
 
     def _can_pack_without_mutation(self, container: Container, item: Item) -> bool:
         """候補評価用。3D空間やItem座標を変更せずに積載可否だけを見る。"""
-        if container.current_weight + item.weight > container.max_weight:
+        if container.vanning_date and item.creation_date > container.vanning_date:
             return False
-        if self._violates_container_rules(container, item):
+        if container.current_weight + item.weight > container.max_weight:
             return False
 
         packer = self.packers.get(container.id)
-        probe_packer = copy.deepcopy(packer) if packer else self._build_probe_packer(container)
-        if probe_packer is None:
-            return False
-        probe_item = copy.deepcopy(item)
-        return probe_packer.try_pack_item(probe_item)
+        if packer:
+            return packer.can_pack_item_probe(item)
+        else:
+            # まだpackerがない場合はビルドして試す（通常は空のはずなので問題なし）
+            probe_packer = self._build_probe_packer(container)
+            if probe_packer is None:
+                return False
+            return probe_packer.can_pack_item_probe(item)
 
     def _build_probe_packer(self, container: Container):
         probe_container = copy.deepcopy(container)
@@ -120,10 +118,16 @@ class VanningEngine:
             if self.prioritize_open_containers
             else (0 if clears_alert else 1 if not after_is_alert else 2)
         )
+        # 仕向け地グルーピング: 同じ仕向け地の荷物が既に入っているコンテナを優先
+        has_matching_dest = False
+        if getattr(item, 'destination', None) and container.items:
+            has_matching_dest = any(getattr(i, 'destination', None) == item.destination for i in container.items)
+
         return (
             # Open-container priority improves large single-vessel plans; medium plans
             # may also evaluate the established packing preference as an alternative.
             status_priority,
+            not has_matching_dest,  # 同じ仕向け地のコンテナを優先
             max(0.0, VOLUME_TARGET_RATE - after_volume_rate),
             1 if overweight_near_limit else 0,
             weight_soft_penalty,
@@ -157,8 +161,6 @@ class VanningEngine:
         remaining_weight = container.max_weight - container.current_weight
         for item in forwardable_items:
             if item.weight > remaining_weight:
-                continue
-            if self._violates_container_rules(container, item):
                 continue
             available_volume_gain += (item.volume_m3 / container.max_volume_m3) * 100 if container.max_volume_m3 > 0 else 0
         return container.fill_rate_volume + available_volume_gain >= VOLUME_TARGET_RATE
@@ -867,8 +869,6 @@ class VanningEngine:
                     for target in containers:
                         if target is source:
                             continue
-                        if self._violates_container_rules(target, item):
-                            continue
 
                         after_weight_rate = ((target.current_weight + item.weight) / target.max_weight) * 100
                         if after_weight_rate >= source_rate or after_weight_rate > 100.0:
@@ -918,7 +918,7 @@ class VanningEngine:
         containers: List[Container] = []
         unpacked_items: List[Item] = []
         self.packers = {}
-        
+
         # 体積80%が赤字判定なので、重量は制約として扱い、床面を使う大物・低密度の荷物を先に置く。
         def default_sort_key(item: Item):
             nearest_deadline = self._nearest_deadline(item)
@@ -935,7 +935,7 @@ class VanningEngine:
 
         sort_key = sort_key or default_sort_key
         sorted_items = sorted(items, key=sort_key)
-        
+
         for item in sorted_items:
             placed = False
             best_container = self._select_best_container(containers, item)
@@ -949,9 +949,14 @@ class VanningEngine:
                         else "既存コンテナ候補を比較し、実務制約を満たす中で最も充填率が良い配置を選択"
                     )
                 placed = True
-            
+
             if not placed:
                 new_container = Container(id=f"C-{len(containers) + 1:03d}")
+                if self.vanning_base_date:
+                    import datetime
+                    offset_days = -7 + (len(containers) % 6)
+                    new_container.vanning_date = self.vanning_base_date + datetime.timedelta(days=offset_days)
+
                 if self._can_pack(new_container, item):
                     new_container.items.append(item)
                     if not item.decision_reason:
@@ -964,7 +969,7 @@ class VanningEngine:
                     if not item.decision_reason:
                         item.decision_reason = "コンテナ有効内寸・重量・実務制約のいずれかにより積載不可"
                     unpacked_items.append(item)
-                    
+
         self._rebalance_soft_weight(containers)
         if apply_local_search:
             self._improve_low_fill_layout(containers)
@@ -1072,7 +1077,7 @@ class VanningEngine:
         """
         # 1. まず対象の荷物だけで普通に詰める
         containers, unpacked = self.run_basic_packing(target_items)
-        
+
         final_containers = []
         next_pool = unpacked.copy() # 基本ロジックで溢れたものは無条件でプールへ
         remaining_forwardable = forwardable_items.copy()
@@ -1081,7 +1086,7 @@ class VanningEngine:
         # 2. 各コンテナの充填率を評価し、時間軸操作（Pull/Push）を試みる
         for container in containers:
             is_red_ink = container.fill_rate_volume < VOLUME_TARGET_RATE
-            
+
             if is_red_ink:
                 # --- 🟢 PULL (前倒し) の試み ---
                 # すでに現場にある前倒し候補から入りそうなものを探し、体積充填率80%を目指す
@@ -1136,13 +1141,13 @@ class VanningEngine:
                 # コンテナ内の全荷物が「来週(7日後)まで待てるか」判定する
                 can_wait = True
                 force_limit_date = current_date + datetime.timedelta(days=force_ship_window_days)
-                
+
                 for item in container.items:
                     # 納期アウト、木箱寿命アウト、または手動で「強制出荷(force_ship)」フラグが立っているなら待てない
                     if item.force_ship or item.due_date <= force_limit_date or (item.expiration_date and item.expiration_date <= force_limit_date):
                         can_wait = False
                         break
-                
+
                 if can_wait:
                     # 待てるなら、このコンテナは出荷せず中身を全てプールへ戻す（コンテナ破棄）
                     for item in container.items:
@@ -1213,46 +1218,46 @@ class VanningEngine:
 
 if __name__ == "__main__":
     from data_loader import DataLoader
-    
+
     loader = DataLoader()
     try:
         items = loader.load_from_excel("(抜粋)ケースリスト.xlsx", sheet_name=0)
-        
+
         # テストのため、データを「必須出荷分(前半分)」と「前倒し候補(後半分)」に分割
         target_items = items[:20]
         forwardable_items = items[20:]
         current_date = datetime.date.today()
-        
+
         engine = VanningEngine()
         containers, pool, unused_forwardable = engine.run_time_axis_packing(target_items, forwardable_items, current_date)
-        
+
         print("\n=== バンニング計算結果（第2フェーズ：時間軸操作） ===")
         print(f" [確定コンテナ数]: {len(containers)} 本")
         print(f" [保留プール送り]: {len(pool)} 個の荷物")
         print(f" [未使用の前倒し候補]: {len(unused_forwardable)} 個\n")
-        
+
         for c in containers:
             is_alert = c.fill_rate_volume < VOLUME_TARGET_RATE
             alert_str = "[ALERT: 体積80%未満]" if is_alert else "[OK: 体積80%クリア]"
-            
+
             print(f"  [コンテナ {c.id}] {alert_str}")
             print(f"    - 総重量: {c.current_weight:,.1f} kg (充填率: {c.fill_rate_weight:.1f}%)")
-            
+
             print(f"    - 総体積: {c.current_volume_m3:,.1f} m3 (充填率: {c.fill_rate_volume:.1f}%)")
-            
+
             # 各コンテナ内で「時間軸操作」が行われた荷物をハイライト
             special_items = [i for i in c.items if i.status_msg]
             if special_items:
                 print(f"    - 時間軸操作ログ:")
                 for i in special_items:
                     print(f"      * {i.name}: {i.status_msg}")
-                    
+
             # 3D座標のサンプル表示
             print(f"    - 3D配置座標サンプル (最初の2件):")
             for i in c.items[:2]:
                 rot_str = "(回転)" if i.is_rotated else ""
                 print(f"      * {i.name}: X={i.x:.1f}, Y={i.y:.1f}, Z={i.z:.1f} {rot_str}")
             print("")
-                
+
     except Exception as e:
         print(f"実行エラー: {e}")

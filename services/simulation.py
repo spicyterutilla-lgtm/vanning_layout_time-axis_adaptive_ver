@@ -37,7 +37,7 @@ def parameter_rate_to_percent(value):
 def safe_rate(count, total):
     return round((count / total) * 100, 1) if total else 0
 
-def build_simulation_context(items, input_profile=None, generation_parameters=None):
+def build_simulation_context(items, input_profile=None, generation_parameters=None, dataset_kind="standard", source_filename=""):
     if not items:
         return None
 
@@ -59,8 +59,18 @@ def build_simulation_context(items, input_profile=None, generation_parameters=No
     future_count = sum(1 for item in items if item.creation_date > evaluation_date)
     arrived_count = total - future_count
     is_generated = bool(input_profile.get("generated_simulation"))
+    is_trial = dataset_kind == "trial" or bool(input_profile.get("trial_dataset"))
     detected = input_profile.get("detected_columns", {})
-    if is_generated:
+    if is_trial:
+        source_rows = [
+            {"item": "データ区分", "status": "試験データ", "basis": "別枠読込", "note": "標準シミュレーションデータを置き換えず、確認用として計算"},
+            {"item": "ケース寸法・重量", "status": "入力Excel", "basis": "L/W/H/重量", "note": "送付された貨物リストの入力値をそのまま使用"},
+            {"item": "納入予定日", "status": "入力Excel" if detected.get("creation") else "補完", "basis": "積載可能日/納入予定日", "note": "積載可能日を納入予定日として評価"},
+            {"item": "積込期限", "status": "入力Excel" if detected.get("due") else "補完", "basis": "納期/バンニング完了期限", "note": "納期を積込期限として評価"},
+            {"item": "積み方", "status": "自動判定", "basis": "底面優先・3D配置", "note": "水平方向90度回転と重量上下制約を適用"},
+        ]
+        summary_note = "試験データとして別枠で読み込んだ入力Excelによる結果です。標準シミュレーションデータや先方回答ベースの生成条件とは混同せず、確認用として扱います。"
+    elif is_generated:
         source_rows = [
             {"item": "ケース寸法・箱タイプ", "status": "開示資料ベース", "basis": "ケースマスタ", "note": "いすゞロジスティック開示ケースリストの寸法を使用"},
             {"item": "計画工程", "status": "先方回答ベース", "basis": "船積日からのリードタイム", "note": "情報受領は約3週間前、レイアウト確定は約2週間前、積込みは約1週間前から2日前まで"},
@@ -85,6 +95,10 @@ def build_simulation_context(items, input_profile=None, generation_parameters=No
 
     return {
         "is_generated": is_generated,
+        "is_trial": is_trial,
+        "dataset_kind": dataset_kind,
+        "dataset_label": "試験データ" if is_trial else "標準データ",
+        "source_filename": source_filename,
         "loaded_count": total,
         "generated_rows_setting": coerce_float(generation_parameters.get("生成行数")),
         "seed": str(generation_parameters.get("乱数シード", "")).strip(),
@@ -187,16 +201,18 @@ def weighted_choice(randomizer, weighted_values):
     return weighted_values[-1][0]
 
 def build_planning_dates(assumptions, planning_date=None):
-    planning_date = planning_date or datetime.date.today()
+    info_date = planning_date or datetime.date.today()
     timeline = assumptions.get("planning_timeline", {})
-    layout_lead = int(timeline.get("layout_confirmation_lead_days", 14))
     cargo_lead = int(timeline.get("cargo_information_lead_days", 21))
+    layout_lead = int(timeline.get("layout_confirmation_lead_days", 14))
     vanning_start_lead = int(timeline.get("vanning_start_lead_days", 7))
     vanning_end_lead = int(timeline.get("vanning_end_lead_days", 2))
-    vessel_loading_date = planning_date + datetime.timedelta(days=layout_lead)
+    
+    vessel_loading_date = info_date + datetime.timedelta(days=cargo_lead)
+    
     return {
-        "出荷情報受領日": vessel_loading_date - datetime.timedelta(days=cargo_lead),
-        "レイアウト確定期限": planning_date,
+        "出荷情報受領日": info_date,
+        "レイアウト確定期限": vessel_loading_date - datetime.timedelta(days=layout_lead),
         "バンニング開始日": vessel_loading_date - datetime.timedelta(days=vanning_start_lead),
         "バンニング完了期限": vessel_loading_date - datetime.timedelta(days=vanning_end_lead),
         "船積日": vessel_loading_date,

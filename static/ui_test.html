@@ -54,6 +54,25 @@
             color: #94a3b8 !important;
             cursor: not-allowed !important;
         }
+
+        /* 3D Highlight & Badge Animations */
+        @keyframes soft-blink {
+            0%, 100% { filter: brightness(1) drop-shadow(0 0 0px transparent); opacity: 1; }
+            50% { filter: brightness(1.5) drop-shadow(0 0 15px rgba(255,255,255,0.8)); opacity: 0.8; }
+        }
+        .iso-item.highlight {
+            animation: soft-blink 1s infinite !important;
+            z-index: 20;
+            border: 2px solid white;
+        }
+        @keyframes pulse-danger {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+        .c-card.must-ship {
+            animation: pulse-danger 2s infinite;
+        }
         .input-panel {
             display: flex;
             gap: 1.5rem;
@@ -684,7 +703,7 @@
                     </div>
 
                 <!-- Container Grid (Permanently set to List View) -->
-                <div class="container-grid list-view">
+                <div class="container-grid list-view" style="padding: 12px; margin: -12px;">
                     
                     <!-- 納期直近（必須）カード -->
                     <div class="c-card must-ship" onclick="document.getElementById('modal-test').style.display='flex'">
@@ -705,8 +724,8 @@
                             </div>
                         </div>
                         <div class="c-stats-grid">
-                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val alert">62.1<small>%</small></div></div>
-                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">12,450<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">実体積 (最大60m³)</div><div class="stat-val alert">37.2<small>m³</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量 (最大26.0t)</div><div class="stat-val">12.4<small>t</small></div></div>
                             <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">8<small>個</small></div></div>
                         </div>
                         <div style="margin-top:1rem; text-align:center; color:#64748b; font-size:0.85rem; font-weight:600;">
@@ -733,8 +752,8 @@
                             </div>
                         </div>
                         <div class="c-stats-grid">
-                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ok">88.5<small>%</small></div></div>
-                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">22,100<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">実体積 (最大60m³)</div><div class="stat-val ok">53.1<small>m³</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量 (最大26.0t)</div><div class="stat-val">22.1<small>t</small></div></div>
                             <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">24<small>個</small></div></div>
                         </div>
                     </div>
@@ -759,8 +778,8 @@
                             </div>
                         </div>
                         <div class="c-stats-grid">
-                            <div class="stat-box"><div class="stat-lbl">積載効率</div><div class="stat-val ok">81.2<small>%</small></div></div>
-                            <div class="stat-box"><div class="stat-lbl">総重量</div><div class="stat-val">19,800<small>kg</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">実体積 (最大60m³)</div><div class="stat-val ok">48.7<small>m³</small></div></div>
+                            <div class="stat-box"><div class="stat-lbl">総重量 (最大26.0t)</div><div class="stat-val">19.8<small>t</small></div></div>
                             <div class="stat-box"><div class="stat-lbl">荷物数</div><div class="stat-val">18<small>個</small></div></div>
                         </div>
                     </div>
@@ -794,8 +813,8 @@
                         
                         <div class="iso-container">
                             <span style="color:#94a3b8; font-weight:700; font-size:1.5rem; position:absolute; top:-30px;">C-005 Area</span>
-                            <div class="iso-item"></div>
-                            <div class="iso-item pull"></div>
+                            <div class="iso-item" id="iso-red"></div>
+                            <div class="iso-item pull" id="iso-green"></div>
                         </div>
                     </div>
                     
@@ -806,9 +825,13 @@
                             <div class="workspace-tab">未積載 / 候補 (124)</div>
                         </div>
                         
+                        <div style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin: 0.75rem 0 0.25rem; font-weight: bold; letter-spacing: 0.05em;">
+                            ▲ コンテナの奥（最初に積み込む）
+                        </div>
+                        
                         <div class="drag-list">
                             <!-- Drag Item 1 -->
-                            <div class="drag-item urgent">
+                            <div class="drag-item urgent" onmouseenter="document.getElementById('iso-red').classList.add('highlight')" onmouseleave="document.getElementById('iso-red').classList.remove('highlight')">
                                 <div class="item-info">
                                     <div class="item-title">ENG-A01 (エンジンブロック)</div>
                                     <div class="item-meta">
@@ -820,7 +843,7 @@
                             </div>
                             
                             <!-- Drag Item 2 -->
-                            <div class="drag-item urgent">
+                            <div class="drag-item urgent" onmouseenter="document.getElementById('iso-red').classList.add('highlight')" onmouseleave="document.getElementById('iso-red').classList.remove('highlight')">
                                 <div class="item-info">
                                     <div class="item-title">ENG-A02 (エンジンブロック)</div>
                                     <div class="item-meta">
@@ -842,7 +865,7 @@
                                 </div>
                                 <button class="btn-ghost" style="padding:4px 8px; font-size:0.75rem;">外す</button>
                             </div>
-                            <div class="drag-item pull">
+                            <div class="drag-item pull" onmouseenter="document.getElementById('iso-green').classList.add('highlight')" onmouseleave="document.getElementById('iso-green').classList.remove('highlight')">
                                 <div class="item-info">
                                     <div class="item-title">AXL-F01 (フロントアクスル)</div>
                                     <div class="item-meta">
@@ -852,6 +875,10 @@
                                 </div>
                                 <button class="btn-ghost" style="padding:4px 8px; font-size:0.75rem;">外す</button>
                             </div>
+                        </div>
+                        
+                        <div style="font-size: 0.75rem; color: #94a3b8; text-align: center; margin: 0.25rem 0 0.5rem; font-weight: bold; letter-spacing: 0.05em;">
+                            ▼ コンテナの手前・扉側（最後に積み込む）
                         </div>
                         
                         <div class="dropzone-mock" style="margin-top:0.5rem; padding:1rem; background:#f8fafc; border:2px dashed #cbd5e1; border-radius:8px; text-align:center; color:#64748b; font-size:0.85rem; cursor:pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='#3b82f6'; this.style.backgroundColor='#eff6ff';" onmouseout="this.style.borderColor='#cbd5e1'; this.style.backgroundColor='#f8fafc';" onclick="simulateOverload()">
