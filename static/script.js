@@ -98,10 +98,10 @@ function applyUploadSuccess(totalItems, ctx, baselineStats = null) {
     document.getElementById('drop-icon').textContent = '✅';
     document.getElementById('upload-status').innerHTML =
         `<strong style="color:var(--success);">読込完了: ${Number(totalItems).toLocaleString()}件</strong>`;
-    // if (ctx?.recommended_base_date) {
-    //     const bd = document.getElementById('base-date');
-    //     if (bd) bd.value = ctx.recommended_base_date;
-    // }
+    if (ctx?.recommended_base_date) {
+        const bd = document.getElementById('base-date');
+        if (bd) bd.value = ctx.recommended_base_date;
+    }
 }
 
 // =====================
