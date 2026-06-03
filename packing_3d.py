@@ -3,10 +3,6 @@ from typing import List
 from models import Item, Container
 from numba_packing import get_best_space, split_space, prune_free_spaces, probe_can_pack
 
-class Space:
-    """互換性のために残す（現状未使用）"""
-    pass
-
 class Packer3D:
     """
     Numbaベースの3D空間の配置計算エンジン。

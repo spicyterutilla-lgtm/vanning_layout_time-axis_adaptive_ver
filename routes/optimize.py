@@ -6,7 +6,7 @@ from services.session import SESSION_DATA, build_valid_items, reset_runtime_stat
 from services.validation import classify_items_for_day, validate_container_geometry
 from services.utils import (
     read_bounded_int, parse_base_date, order_containers_for_output,
-    build_efficiency_summary
+    build_efficiency_summary, build_review_queue, build_container_alert_summary
 )
 from vanning_engine import VanningEngine, LARGE_PLAN_ITEM_THRESHOLD
 from metaheuristics_engine import GeneticAlgorithmOptimizer
@@ -164,6 +164,21 @@ def handle_optimize():
     }
     SESSION_DATA["last_optimization_summary"] = optimization_summary
 
+    alert_summaries = {}
+    for c in containers:
+        alert_summaries[c.id] = build_container_alert_summary(c, current_date, must_ship_window_days)
+    SESSION_DATA["last_alert_summaries"] = alert_summaries
+
+    review_queue = build_review_queue(
+        pool_items=pool,
+        unused_forwardable=unused_forwardable,
+        hold_items=day_groups.get("hold", []),
+        future_items=day_groups.get("future", []),
+        current_date=current_date,
+        limit=50
+    )
+    SESSION_DATA["last_review_queue"] = review_queue
+
     response_containers = []
     packed_item_ids = set()
     for c in containers:
@@ -201,21 +216,23 @@ def handle_optimize():
             })
         response_containers.append(c_dict)
 
+    updated_items_map = {item.id: item for item in pool + unused_forwardable}
     response_unused = []
     for item in valid_items:
         if item.id not in packed_item_ids:
+            current_item = updated_items_map.get(item.id, item)
             response_unused.append({
-                "id": item.id,
-                "name": item.name,
-                "destination": item.destination,
-                "l": item.length,
-                "w": item.width,
-                "h": item.height,
-                "weight": item.weight,
-                "volume_m3": item.volume_m3,
-                "is_force_ship": item.force_ship,
-                "status_msg": item.status_msg,
-                "due_date": item.due_date.strftime('%m/%d') if getattr(item, 'due_date', None) else ""
+                "id": current_item.id,
+                "name": current_item.name,
+                "destination": current_item.destination,
+                "l": current_item.length,
+                "w": current_item.width,
+                "h": current_item.height,
+                "weight": current_item.weight,
+                "volume_m3": current_item.volume_m3,
+                "is_force_ship": current_item.force_ship,
+                "status_msg": current_item.status_msg,
+                "due_date": current_item.due_date.strftime('%m/%d') if getattr(current_item, 'due_date', None) else ""
             })
 
     return jsonify({
