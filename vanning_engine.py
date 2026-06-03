@@ -989,7 +989,10 @@ class VanningEngine:
                 if self.vanning_base_date:
                     import datetime
                     offset_days = -7 + (len(containers) % 6)
-                    new_container.vanning_date = self.vanning_base_date + datetime.timedelta(days=offset_days)
+                    base_date = self.vanning_base_date + datetime.timedelta(days=offset_days)
+                    max_vanning_date = self.vanning_base_date - datetime.timedelta(days=2)
+                    target_date = max(base_date, item.creation_date)
+                    new_container.vanning_date = min(target_date, max_vanning_date)
 
                 if self._can_pack(new_container, item):
                     new_container.items.append(item)
