@@ -112,26 +112,31 @@ def handle_optimize():
 
     # ── 深層モード: 近似値モードの結果をエリートとしてGAに渡す ──
     if optimization_mode == "deep":
-        SESSION_DATA["ga_status"] = {"generation": 0, "best_score": 0}
+        try:
+            SESSION_DATA["ga_status"] = {"generation": 0, "best_score": 0}
 
-        def ga_progress_callback(gen, score):
-            SESSION_DATA["ga_status"]["generation"] = gen
-            SESSION_DATA["ga_status"]["best_score"] = score
+            def ga_progress_callback(gen, score):
+                SESSION_DATA["ga_status"]["generation"] = gen
+                SESSION_DATA["ga_status"]["best_score"] = score
 
-        ga = GeneticAlgorithmOptimizer(
-            target_items=copy.deepcopy(target_items),
-            forwardable_items=copy.deepcopy(forwardable_items),
-            current_date=current_date,
-            vanning_base_date=vessel_loading_date,
-            baseline_containers=containers,
-            baseline_pool=pool,
-            baseline_unused=unused_forwardable,
-            time_limit_seconds=60,      # 高レベル探索のため制限時間を延長 (30 -> 60)
-            population_size=100,        # Numbaによる高速化の恩恵を活かし個体数を大幅増 (20 -> 100)
-            progress_callback=ga_progress_callback
-        )
-        containers, pool, unused_forwardable = ga.run()
-        SESSION_DATA["ga_status"]["finished"] = True
+            ga = GeneticAlgorithmOptimizer(
+                target_items=copy.deepcopy(target_items),
+                forwardable_items=copy.deepcopy(forwardable_items),
+                current_date=current_date,
+                vanning_base_date=vessel_loading_date,
+                baseline_containers=containers,
+                baseline_pool=pool,
+                baseline_unused=unused_forwardable,
+                time_limit_seconds=60,      # 高レベル探索のため制限時間を延長 (30 -> 60)
+                population_size=100,        # Numbaによる高速化の恩恵を活かし個体数を大幅増 (20 -> 100)
+                progress_callback=ga_progress_callback
+            )
+            containers, pool, unused_forwardable = ga.run()
+            SESSION_DATA["ga_status"]["finished"] = True
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Deep Optimization Failed: {str(e)}'}), 500
 
     containers = order_containers_for_output(containers)
     for idx, c in enumerate(containers, 1):

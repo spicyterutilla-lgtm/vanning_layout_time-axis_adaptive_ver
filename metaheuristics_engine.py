@@ -51,7 +51,14 @@ class GeneticAlgorithmOptimizer:
     def run(self) -> Tuple[List[Container], List[Item], List[Item]]:
         start_time = time.time()
 
-        baseline_order = self._extract_genome_from_containers(self.best_containers)
+        temp_engine = VanningEngine(strategy_mode="fast", vanning_base_date=self.vanning_base_date)
+        strategies = temp_engine._large_plan_strategies() if self.num_targets >= 300 else temp_engine._packing_strategies()
+        sort_key = strategies[0][1]
+
+        target_indices = sorted(range(self.num_targets), key=lambda i: sort_key(self.all_items[i]))
+        forward_indices = sorted(range(self.num_targets, len(self.all_items)), key=lambda i: sort_key(self.all_items[i]))
+        baseline_order = target_indices + forward_indices
+
         population = self._build_initial_population(baseline_order)
 
         while True:
@@ -217,9 +224,9 @@ class GeneticAlgorithmOptimizer:
             genome[idx1], genome[idx2] = genome[idx2], genome[idx1]
 
     def _simulate(self, genome: List[int]):
-        """配列の順序通りにVanningEngineに流し込み、結果をシミュレートする"""
+        """配置の順序通りにVanningEngineに流し込み、結果をシミュレートする"""
         engine = VanningEngine(
-            strategy_mode="full", 
+            strategy_mode="ga", 
             prioritize_open_containers=True, 
             vanning_base_date=self.vanning_base_date
         )
