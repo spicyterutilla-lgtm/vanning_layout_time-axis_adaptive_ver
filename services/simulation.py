@@ -110,7 +110,7 @@ def build_simulation_context(items, input_profile=None, generation_parameters=No
         "vanning_start_date": str(generation_parameters.get("バンニング開始日", "")).strip(),
         "vanning_end_date": str(generation_parameters.get("バンニング完了期限", "")).strip(),
         "vessel_loading_date": str(generation_parameters.get("船積日", "")).strip(),
-        "recommended_base_date": str(generation_parameters.get("バンニング完了期限", "")).strip(),
+        "recommended_base_date": str(generation_parameters.get("出荷情報受領日", "")).strip(),
         "availability_reference_label": "完了期限時点" if is_generated and vanning_end_parameter else "本日時点",
         "placement_policy": "大きい底面を土台にし、上側が下側より重くならない配置で体積80%を目標にします。",
         "wood_deadline_rate": safe_rate(wood_deadline_count, total),
