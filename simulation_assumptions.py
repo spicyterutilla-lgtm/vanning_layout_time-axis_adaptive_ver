@@ -29,7 +29,7 @@ DEFAULT_SIMULATION_ASSUMPTIONS = {
         "大型木箱/特殊木箱": [["軽量", 0.35], ["標準", 0.35], ["重量物", 0.30]],
     },
     "planning_timeline": {
-        "cargo_information_lead_days": 21,
+        "cargo_information_lead_days": 14,
         "layout_confirmation_lead_days": 14,
         "vanning_start_lead_days": 7,
         "vanning_end_lead_days": 2,
