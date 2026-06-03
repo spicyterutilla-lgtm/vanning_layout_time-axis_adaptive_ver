@@ -58,7 +58,11 @@ class VanningEngine:
         if container.current_weight + item.weight > container.max_weight:
             return False
 
-        # 2. 3D配置判定（パズルの計算）
+        # 2. 理論体積チェック（残りの空間体積が荷物の体積より小さいなら絶対に入らない）
+        if (container.max_volume_m3 - container.current_volume_m3) < item.volume_m3:
+            return False
+
+        # 3. 3D配置判定（パズルの計算）
         if container.id not in self.packers:
             self.packers[container.id] = Packer3D(container)
 
@@ -72,6 +76,8 @@ class VanningEngine:
         if container.vanning_date and item.creation_date > container.vanning_date:
             return False
         if container.current_weight + item.weight > container.max_weight:
+            return False
+        if (container.max_volume_m3 - container.current_volume_m3) < item.volume_m3:
             return False
 
         packer = self.packers.get(container.id)
@@ -353,6 +359,9 @@ class VanningEngine:
         ][:LARGE_PLAN_STRATEGY_LIMIT]
 
     def _packing_strategies(self):
+        if self.strategy_mode == "ga":
+            return [("ga_order", lambda i: 0)]
+            
         strategies = [
             ("volume_first", self._sort_key_volume_first),
             ("deadline_first", self._sort_key_deadline_first),
@@ -531,10 +540,10 @@ class VanningEngine:
                     ))
         return sorted(options)
 
-    def _try_rescue_low_fill_container(self, containers: List[Container]) -> bool:
+    def _try_rescue_low_fill_container(self, containers: List[Container], rescue_limit: int = LOCAL_RESCUE_TRIAL_LIMIT) -> bool:
         """Move one item only when it strictly reduces the alert-container score."""
         baseline_score = self._packing_result_score(containers, [])
-        for _, _, _, _, source_id, target_id, item_id in self._rescue_transfer_options(containers)[:LOCAL_RESCUE_TRIAL_LIMIT]:
+        for _, _, _, _, source_id, target_id, item_id in self._rescue_transfer_options(containers)[:rescue_limit]:
             trial_engine, trial_containers, source, target = self._build_transfer_trial(
                 containers,
                 source_id,
@@ -832,10 +841,24 @@ class VanningEngine:
 
     def _improve_low_fill_layout(self, containers: List[Container], allow_pool_repack: bool = True):
         """Apply bounded local search without changing physical or weight constraints."""
-        for _ in range(LOCAL_SEARCH_MAX_PASSES):
+        num_containers = len(containers)
+        # 動的に回数を制限（コンテナが多い場合は大幅に減らす）
+        max_passes = LOCAL_SEARCH_MAX_PASSES
+        rescue_limit = LOCAL_RESCUE_TRIAL_LIMIT
+        if num_containers >= 10:
+            max_passes = max(1, LOCAL_SEARCH_MAX_PASSES // 3)
+            rescue_limit = max(10, LOCAL_RESCUE_TRIAL_LIMIT // 4)
+        if num_containers >= 20:
+            max_passes = max(1, LOCAL_SEARCH_MAX_PASSES // 5)
+            rescue_limit = max(5, LOCAL_RESCUE_TRIAL_LIMIT // 10)
+        if num_containers >= 40:
+            max_passes = 1
+            rescue_limit = 2
+
+        for _ in range(max_passes):
             if self._try_consolidate_low_fill_container(containers):
                 continue
-            if self._try_rescue_low_fill_container(containers):
+            if self._try_rescue_low_fill_container(containers, rescue_limit=rescue_limit):
                 continue
             if self._try_repack_low_fill_pair(containers):
                 continue
@@ -987,12 +1010,16 @@ class VanningEngine:
         return containers, unpacked_items
 
     def run_basic_packing(self, items: List[Item]) -> Tuple[List[Container], List[Item]]:
-        strategies = (
-            self._large_plan_strategies()
-            if len(items) >= LARGE_PLAN_ITEM_THRESHOLD
-            else self._packing_strategies()
-        )
-        if len(items) <= 1:
+        if self.strategy_mode == "ga":
+            strategies = [("ga_order", lambda i: 0)]
+        else:
+            strategies = (
+                self._large_plan_strategies()
+                if len(items) >= LARGE_PLAN_ITEM_THRESHOLD
+                else self._packing_strategies()
+            )
+
+        if len(items) <= 1 or self.strategy_mode == "ga":
             self.last_packing_strategy = strategies[0][0]
             return self._run_basic_packing_once(items, strategies[0][1])
 
@@ -1106,7 +1133,7 @@ class VanningEngine:
                     candidates = sorted(
                         remaining_forwardable,
                         key=lambda item: self._forwardable_key(container, item, current_date)
-                    )
+                    )[:100] # 高速化のため上位100件に制限
                     for f_item in candidates:
                         before_volume = container.fill_rate_volume
                         before_weight = container.fill_rate_weight
@@ -1174,7 +1201,7 @@ class VanningEngine:
                         candidates = sorted(
                             remaining_forwardable,
                             key=lambda item: self._forwardable_key(container, item, current_date)
-                        )
+                        )[:100] # 高速化のため上位100件に制限
                         for f_item in candidates:
                             projected_weight_rate = ((container.current_weight + f_item.weight) / container.max_weight) * 100 if container.max_weight > 0 else 0
                             if projected_weight_rate > WEIGHT_SOFT_LIMIT_RATE:

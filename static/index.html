@@ -625,7 +625,7 @@
             <div class="logo">ISUZU Vanning Optimizer <span style="font-size:0.8rem; background:#3b82f6; color:white; padding:2px 8px; border-radius:12px; margin-left:10px;">β版</span></div>
         </header>
 
-        <main style="width: 100%; margin: 0 auto; padding: 0.5rem 1.5rem 1rem 1.5rem; flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;">
+        <main style="width: 100%; margin: 0 auto; padding: 0.5rem 1.5rem 1rem 1.5rem; flex: 1; display: flex; flex-direction: column; overflow-y: auto; position: relative;">
             
             <!-- 初期画面 (Welcome Screen) -->
             <div id="welcome-screen" style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 2rem; animation: fadeSlideIn 0.5s ease;">
@@ -765,9 +765,26 @@
                                         <span style="color:var(--success); font-size:0.75rem; font-weight:bold; margin-left:0.25rem;"><span id="r3-rate-label" style="font-size:0.75rem; font-weight:bold; margin-left:0.25rem; color:var(--success);">高密度積載</span></span>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
-                    </div>
+                              </div>
+
+                              <!-- 深掘り最適化ボタン -->
+                              <div style="margin-top: 1rem; text-align:center;">
+                                  <button class="btn-primary" id="btn-deep-run" onclick="runDeepOptimization()" style="width:100%; padding: 0.8rem; display:flex; justify-content:center; align-items:center; gap:0.5rem; font-weight:bold;">
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                      さらに最適化（深掘り）
+                                  </button>
+                                  <div id="deep-loading" style="display:none; margin-top: 0.5rem; font-size: 0.85rem; color: #64748b;">
+                                      <div class="spinner" style="border-width: 2px; width: 16px; height: 16px; display: inline-block; vertical-align: middle; margin-right: 4px;"></div>
+                                      深掘り探索中...（<span id="deep-timer">0</span>秒経過 / 最大60秒程度）
+                                  </div>
+                              </div>
+
+                              <!-- 最適化ログ -->
+                              <div id="optimization-log" style="margin-top: 1rem; font-size: 0.75rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.5rem; max-height: 80px; overflow-y: auto; color: #475569; display: none;">
+                                  <!-- ログがここに追加されます -->
+                              </div>
+                          </div>
+                      </div>
                 </div>
             </div>
 
@@ -792,7 +809,7 @@
             </div>
 
             <!-- 下部: ワークスペース (メイン画面) -->
-            <div class="workspace-layout" id="workspace-layout" style="display: none; grid-template-columns: 1fr; gap: 1rem; align-items: stretch; overflow: hidden; flex: 1;">
+            <div class="workspace-layout" id="workspace-layout" style="display: none; grid-template-columns: 1fr; gap: 1rem; align-items: stretch; overflow: visible; flex: 1;">
                 
 
 
@@ -810,6 +827,11 @@
                         </div>
                         <button class="btn-ghost" style="padding: 6px 12px; font-size: 0.85rem;" onclick="downloadExcel()">全コンテナ出力 (Excel)</button>
                     </div>
+
+                <!-- 最適化履歴切り替えタブ -->
+                <div id="optimization-tabs" class="tabs" style="display: none; margin-bottom: 1rem; gap: 0.5rem; justify-content: flex-start;">
+                    <!-- タブボタンがJSで動的に追加されます -->
+                </div>
 
                 <!-- Container Grid (Permanently set to List View) -->
                 <div class="container-grid list-view" id="container-grid" style="padding: 0 16px 16px 16px;">

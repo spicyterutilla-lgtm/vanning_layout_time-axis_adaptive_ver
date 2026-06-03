@@ -12,6 +12,10 @@ let currentContainersData = [];
 let currentUnusedItems = [];
 let removedItemIds = new Set(); // 手動編集時にコンテナから外した荷物のIDを管理
 
+let apiData = null;
+let optimizationHistory = [];
+let currentOptimizationIndex = 0;
+
 function esc(v) {
     return String(v ?? '').replace(/[&<>"']/g, c =>
         ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -268,7 +272,6 @@ async function runStory() {
     }, 100);
 
     // 実API呼び出し
-    let apiData = null;
     try {
         const res = await fetch('/api/optimize', {
             method: 'POST',
@@ -292,13 +295,17 @@ async function runStory() {
     clearInterval(textInterval); clearInterval(gaInterval); clearInterval(timeInterval);
     if (apiData?.error) { alert('エラー: ' + apiData.error); return; }
 
+    optimizationHistory = [{ name: "初期最適化", data: apiData }];
+    currentOptimizationIndex = 0;
+    renderOptimizationTabs();
+
     // ===== Step 1 の数値を実データで上書き（削除） =====
     // ※事前の /api/baseline で正確な対象件数と体積を取得しているため、ここでは上書きせず維持します
     const optSum     = apiData.optimization_summary || {};
     const finalCount = apiData.containers.length;
     const lowerBound = optSum.capacity_lower_bound || Math.ceil(finalCount * 0.75);
     // パネル1（読込と現状の課題）で表示したグリーディ予測値を基準にする
-    const greedyEst  = (window.baselineStats && window.baselineStats.greedy_estimate) ? window.baselineStats.greedy_estimate : (optSum.greedy_container_count || Math.round(lowerBound * 1.35));
+    const greedyEst  = stats.greedy_estimate;
     const avgFill    = optSum.avg_volume_rate  ? Number(optSum.avg_volume_rate).toFixed(1)  : '-';
     
     // タイムラインの構築
@@ -347,6 +354,8 @@ async function runStory() {
     document.getElementById('r3-rate-label').textContent     = parseFloat(avgFill) >= 80 ? '高密度積載' : '要改善';
     document.getElementById('r3-rate-label').style.color     = parseFloat(avgFill) >= 80 ? 'var(--success)' : '#ef4444';
 
+    addOptimizationLog('初期最適化', finalCount, avgFill, ((Date.now() - startMs) / 1000).toFixed(1) + '秒');
+
     await sleep(800);
     p3.classList.remove('active');
     p3.classList.add('completed');
@@ -359,6 +368,123 @@ async function runStory() {
     await sleep(300);
     await renderCards(apiData);
     grid.style.pointerEvents = 'auto';
+}
+
+let deepTimerInterval = null;
+
+// =====================
+// ログ追加関数
+// =====================
+function addOptimizationLog(mode, finalCount, avgFill, timeStr) {
+    const logContainer = document.getElementById('optimization-log');
+    if (!logContainer) return;
+    logContainer.style.display = 'block';
+    const now = new Date();
+    const timeTag = `[${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}]`;
+    const div = document.createElement('div');
+    div.style.marginBottom = '4px';
+    div.innerHTML = `<span style="color:#94a3b8;">${timeTag}</span> <strong>${mode}</strong>: ${finalCount}台 (充填率 ${avgFill}%) - 実行: ${timeStr}`;
+    logContainer.appendChild(div);
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+function renderOptimizationTabs() {
+    const tabsContainer = document.getElementById('optimization-tabs');
+    if (!tabsContainer) return;
+    if (optimizationHistory.length <= 1) {
+        tabsContainer.style.display = 'none';
+        return;
+    }
+    tabsContainer.style.display = 'flex';
+    tabsContainer.innerHTML = '';
+    optimizationHistory.forEach((hist, index) => {
+        const btn = document.createElement('button');
+        btn.className = `btn ${index === currentOptimizationIndex ? 'btn-primary' : 'btn-outline'}`;
+        btn.style.padding = '4px 12px';
+        btn.style.fontSize = '0.85rem';
+        btn.textContent = hist.name;
+        btn.onclick = async () => {
+            currentOptimizationIndex = index;
+            apiData = optimizationHistory[index].data;
+            renderOptimizationTabs(); // active状態の更新
+            await renderCards(apiData);
+        };
+        tabsContainer.appendChild(btn);
+    });
+}
+
+// =====================
+// 深掘り最適化（Continuous Optimization）
+// =====================
+async function runDeepOptimization() {
+    const btn = document.getElementById('btn-deep-run');
+    const loader = document.getElementById('deep-loading');
+    if (!btn || !loader) return;
+
+    btn.style.display = 'none';
+    loader.style.display = 'block';
+
+    const timerSpan = document.getElementById('deep-timer');
+    let elapsed = 0;
+    if (timerSpan) timerSpan.textContent = elapsed;
+    deepTimerInterval = setInterval(() => {
+        elapsed++;
+        if (timerSpan) timerSpan.textContent = elapsed;
+    }, 1000);
+
+    const startTime = performance.now();
+
+    try {
+        const res = await fetch('/api/optimize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                base_date: document.getElementById('base-date').value,
+                optimization_mode: 'deep'
+            })
+        });
+        const data = await res.json();
+        if (data.error) {
+            alert(data.error);
+            btn.style.display = 'flex';
+            loader.style.display = 'none';
+            return;
+        }
+
+        // UI更新
+        apiData = data;
+        
+        const optSum     = apiData.optimization_summary || {};
+        const finalCount = apiData.containers.length;
+        const avgFill    = optSum.avg_volume_rate  ? Number(optSum.avg_volume_rate).toFixed(1)  : '-';
+        
+        const stats = window.baselineStats || { greedy_estimate: 55 };
+        const greedyEst = stats.greedy_estimate;
+        const reduction = greedyEst - finalCount;
+        
+        document.getElementById('r3-final-count').innerHTML      = `${finalCount}<span style="font-size:0.9rem; margin-left:2px;">台</span>`;
+        document.getElementById('r3-reduction').textContent      = reduction > 0 ? `${reduction}台削減` : '最適済';
+        document.getElementById('r3-final-rate').innerHTML       = `${avgFill}<span style="font-size:0.9rem; margin-left:2px;">%</span>`;
+        document.getElementById('r3-final-rate').style.color     = parseFloat(avgFill) >= 80 ? 'var(--success)' : '#ef4444';
+        document.getElementById('r3-rate-label').textContent     = parseFloat(avgFill) >= 80 ? '高密度積載' : '要改善';
+        document.getElementById('r3-rate-label').style.color     = parseFloat(avgFill) >= 80 ? 'var(--success)' : '#ef4444';
+
+        const runTimeMs = performance.now() - startTime;
+        addOptimizationLog('深掘り探索', finalCount, avgFill, (runTimeMs / 1000).toFixed(1) + '秒');
+
+        optimizationHistory.push({ name: `深掘り探索 (${optimizationHistory.length})`, data: apiData });
+        currentOptimizationIndex = optimizationHistory.length - 1;
+        renderOptimizationTabs();
+
+        await renderCards(apiData);
+    } catch (e) {
+        console.error('Deep Optimization Error:', e);
+        alert('深掘り探索中にエラーが発生しました。');
+    } finally {
+        if (deepTimerInterval) clearInterval(deepTimerInterval);
+        btn.style.display = 'flex';
+        loader.style.display = 'none';
+    }
 }
 
 // =====================
@@ -482,6 +608,7 @@ let animId;
 let interactableMeshes = [];
 let raycaster = new THREE.Raycaster();
 let mouse = new THREE.Vector2();
+let isTransparentMode = false;
 
 function init3D() {
     if (renderer) return;
@@ -578,7 +705,7 @@ function resetCamera() {
     }
 }
 
-let isTransparentMode = false;
+
 function toggleTransparentMode() {
     isTransparentMode = !isTransparentMode;
     interactableMeshes.forEach(mesh => {
@@ -655,11 +782,24 @@ function open3D(containerId, preserveCamera = false) {
 
         const statsOverlay = document.getElementById('3d-stats-overlay');
         const volumeRateColor = cData.volume_rate >= 80 ? '#10b981' : '#ef4444';
+        
+        // 重心ズレの計算と表示
+        let cgHtml = '';
+        if (cData.cg_x !== undefined) {
+            const idealX = 12000 / 2; // 奥・手前の中心 (mm)
+            const idealY = 2300 / 2;  // 左右の中心 (mm)
+            const devX = Math.round(Math.abs(cData.cg_x - idealX) / 10); // cm
+            const devY = Math.round(Math.abs(cData.cg_y - idealY) / 10); // cm
+            const cgColor = (devX > 50 || devY > 15) ? '#ef4444' : '#10b981'; // 50cm, 15cm以上ズレていれば警告色
+            cgHtml = `<tr><td class="lbl">重心ズレ</td><td class="val" style="color:${cgColor};">縦 ${devX}cm, 横 ${devY}cm</td></tr>`;
+        }
+
         statsOverlay.innerHTML = `
             <table>
                 <tr><td class="lbl">内寸</td><td class="val">12.0 × 2.30 × 2.40 m</td></tr>
                 <tr><td class="lbl">重量</td><td class="val">${Math.round(cData.weight_val).toLocaleString()} / ${cData.weight_max.toLocaleString()} kg</td></tr>
                 <tr><td class="lbl">充填率</td><td class="val" style="color:${volumeRateColor};">${Number(cData.volume_rate).toFixed(1)}%</td></tr>
+                ${cgHtml}
             </table>`;
 
         const colorModeButton = document.getElementById('toggle-color-mode');
@@ -732,13 +872,34 @@ function open3D(containerId, preserveCamera = false) {
         const dropLine = new THREE.Line(dropGeo, new THREE.LineDashedMaterial({ color: 0xff0000, dashSize: 0.1, gapSize: 0.1, depthTest: false, transparent: true }));
         dropLine.computeLineDistances();
         scene.add(dropLine);
-
         const clGeo = new THREE.BufferGeometry().setFromPoints([
             new THREE.Vector3(cW / 2, 0.01, 0), new THREE.Vector3(cW / 2, 0.01, cL)
         ]);
         const cl = new THREE.Line(clGeo, new THREE.LineDashedMaterial({ color: 0xff0000, dashSize: 0.4, gapSize: 0.2 }));
         cl.computeLineDistances();
         scene.add(cl);
+
+        // 重心マーカー（🔴）の追加
+        if (cData.cg_x !== undefined) {
+            const cgThreeX = cData.cg_y / 1000;
+            const cgThreeY = cData.cg_z / 1000;
+            const cgThreeZ = cData.cg_x / 1000;
+            
+            const cgGeo = new THREE.SphereGeometry(0.1, 16, 16);
+            const cgMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 0.5 });
+            const cgSphere = new THREE.Mesh(cgGeo, cgMat);
+            cgSphere.position.set(cgThreeX, cgThreeY, cgThreeZ);
+            scene.add(cgSphere);
+
+            // 理想の重心ライン（中心の縦線）
+            const idealLineMat = new THREE.LineBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.5 });
+            const idealLineGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(cW / 2, 0, cL / 2),
+                new THREE.Vector3(cW / 2, cH, cL / 2)
+            ]);
+            const idealLine = new THREE.Line(idealLineGeo, idealLineMat);
+            scene.add(idealLine);
+        }
 
         if (!preserveCamera) {
             camera.position.set(cW / 2, cH + 3, cL + 6);
@@ -844,9 +1005,16 @@ function renderDragList(cData) {
         }
     });
 
-    document.getElementById('tab-packed').textContent = `搭載済み (${cData.items.length})`;
-    document.getElementById('tab-unpacked').textContent = `未積載 / 候補 (${unpackedCount})`;
-    document.getElementById('tab-removed').textContent = `外した荷物 (${removedCount})`;
+    if (unpackedCount === 0) {
+        unpDiv.innerHTML = '<div style="padding:1rem; text-align:center; color:#94a3b8; font-size:0.85rem;">対象の荷物はありません<br>（すべて積載済です）</div>';
+    }
+    if (removedCount === 0) {
+        remDiv.innerHTML = '<div style="padding:1rem; text-align:center; color:#94a3b8; font-size:0.85rem;">外した荷物はありません</div>';
+    }
+
+    document.getElementById('packed-count').textContent = cData.items.length;
+    document.getElementById('unpacked-count').textContent = unpackedCount;
+    document.getElementById('removed-count').textContent = removedCount;
     
     const alertBanner = document.getElementById('modal-alert-banner');
     if (cData.is_overloaded) {
